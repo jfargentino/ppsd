@@ -1,0 +1,24 @@
+#reset
+
+# arguments
+#N=100 #number of intervals
+width=(OFFSET_MAX-OFFSET_MIN)/N #interval width
+
+set terminal png
+set output sprintf('%s-hist.png', OFFSET_FILE)
+
+#function used to map a value to the intervals
+hist(x,width)=width*floor(x/width)+width/2.0
+set xrange [OFFSET_MIN:OFFSET_MAX]
+set yrange [0:]
+#to put an empty boundary around the
+#data inside an autoscaled graph.
+set offset graph 0.05,0.05,0.05,0.0
+set xtics OFFSET_MIN,(OFFSET_MAX-OFFSET_MIN)/5,OFFSET_MAX
+set boxwidth width*0.9
+set style fill solid 0.5 #fillstyle
+set tics out nomirror
+set xlabel "offset (ns)"
+set ylabel "count"
+#count and plot
+plot OFFSET_FILE u (hist($1,width)):(1.0) smooth freq w boxes lc rgb"green" notitle

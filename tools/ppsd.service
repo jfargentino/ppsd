@@ -1,0 +1,17 @@
+[Unit]
+Description=Drift correction using GPSD+PPS
+# TODO gpsd needed for timeref only
+After=gpsd.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=30
+User=root
+# TODO Running timeref before
+ExecStart=/usr/bin/env bash PPSD
+#WorkingDirectory=/home/alma/drift_eval
+
+# TODO conflict with ntp etc... _but_ chrony allowed (special option)
+[Install]
+#WantedBy=chronyd.service
