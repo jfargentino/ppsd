@@ -55,6 +55,7 @@ void pps_stats_windowed(struct pps_stats_t * stats, unsigned int win_len);
 /******************************************************************************
  *
  ******************************************************************************/
+unsigned int pps_stats_max_length(struct pps_stats_t const * stats);
 unsigned int pps_stats_length(struct pps_stats_t const * stats);
 
 int pps_stats_empty(struct pps_stats_t const * stats);
@@ -86,14 +87,10 @@ void pps_stats_remove_newest(struct pps_stats_t * stats);
 /******************************************************************************
  *
  ******************************************************************************/
-long double pps_stats_var(struct pps_stats_t const * stats,
-                          long double * mean,
-                          unsigned int window);
+long double pps_stats_mean(struct pps_stats_t const * stats,
+                           long double * stddev,
+                           unsigned int window);
 
-
-long double pps_stats_covar (struct pps_stats_t const * stats,
-                             long double * var_ts,
-                             unsigned int window);
 
 long double pps_stats_drift_ppb(struct pps_stats_t const * stats,
                                 unsigned int window);

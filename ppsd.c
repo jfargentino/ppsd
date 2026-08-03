@@ -3,6 +3,7 @@
 #include "adjtimex_helper.h"
 #include "timespec_helper.h"
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -18,23 +19,46 @@ struct estimate_t {
     long long stddev_ns;
 };
 
+struct ppsd_t {
+    struct pps_t * _;
+    struct timespec timeref;
+    struct timespec timestamp;
+    long hw_offset_ns;
+    struct pps_stats_t * drift_stats;
+    long long cum_drift_ppb;
+    struct pps_stats_t * off_stats;
+    long long cum_off_ns;
+    unsigned long count;
+    unsigned long outliers;
+    struct estimate_t est;
+    struct timex tx;
+};
+
+static struct timespec const * ppsd_timeref(struct ppsd_t const * ppsd) {
+    return &ppsd->timeref;
+}
+
+/*****************************************************************************
+ *
+ *****************************************************************************/
 static void estimate_set (struct estimate_t * est,
-                          struct ppsd_t const * ppsd,
+                          struct timespec const * ts,
+                          struct pps_stats_t const * stats,
                           unsigned int win) {
-    est->ts = *ppsd_timeref(ppsd);
-    long double drift_ppb = pps_stats_drift_ppb(ppsd_stats(ppsd), win);
-    long double offset_ns = 0.0l;
-    long double var = pps_stats_var(ppsd_stats(ppsd),
-                                    &offset_ns,
-                                    win);
+    est->ts = *ts;
+    long double drift_ppb = pps_stats_drift_ppb(stats, win);
+    long double stddev_ns = 0.0l;
+    long double mean_ns = pps_stats_mean(stats,
+                                         &stddev_ns,
+                                         win);
     // Offset estimate is not the mean !
     if (win <= 0) {
-        win = pps_stats_length(ppsd_stats(ppsd));
+        win = pps_stats_length(stats);
     }
-    offset_ns += (win/2 + 1) * drift_ppb;
-    est->offset_ns = roundl(offset_ns);
+    mean_ns += (win/2 + 1) * drift_ppb;
+    est->offset_ns = roundl(mean_ns);
     est->drift_ppb = roundl(drift_ppb);
-    est->stddev_ns = roundl(sqrtl(var));
+    est->stddev_ns = roundl(stddev_ns);
 }
 
 static long long estimate_get (struct estimate_t const * est,
@@ -47,40 +71,24 @@ static long long estimate_get (struct estimate_t const * est,
     return est->offset_ns + s*est->drift_ppb;
 }
 
-static long long estimate_stddev (struct estimate_t const * est) {
-    return est->stddev_ns;
-}
-
 /*****************************************************************************
  *
  *****************************************************************************/
-struct ppsd_t {
-    struct pps_t * _;
-    struct timespec timeref;
-    struct timespec timestamp;
-    long hw_offset_ns;
-    struct pps_stats_t * stats;
-    unsigned long count;
-    unsigned long outliers;
-    struct estimate_t est;
-    struct timex tx;
-};
-
 static struct ppsd_t _PPSD_ = {
     ._ = NULL,
     .timeref = { .tv_sec = 0, .tv_nsec = 0 },
     .timestamp = {  .tv_sec = 0, .tv_nsec = 0 },
     .hw_offset_ns = 0L,
-    .stats = NULL,
+    .drift_stats = NULL,
+    .cum_drift_ppb = 0LL,
+    .off_stats = NULL,
+    .cum_off_ns = 0LL,
     .count = 0UL,
     .outliers = 0UL,
     .est = { { 0 } },
     .tx = { 0 }
 };
 
-/*****************************************************************************
- *
- *****************************************************************************/
 FILE * ppsdout = NULL;
 FILE * ppsderr = NULL;
 FILE * ppsddbg = NULL;
@@ -93,9 +101,9 @@ FILE * ppsddbg = NULL;
 /*****************************************************************************
  *
  *****************************************************************************/
-struct ppsd_t * ppsd_open(char const * path,
-                          bool capture_assert,
-                          long hw_offset_ns) {
+static struct ppsd_t * _ppsd_open(char const * path,
+                                  bool capture_assert,
+                                  long hw_offset_ns) {
     pps_stdout = ppsdout;
     pps_stderr = ppsderr;
     pps_stddbg = ppsddbg;
@@ -109,6 +117,56 @@ struct ppsd_t * ppsd_open(char const * path,
     //clock_gettime(CLOCK_REALTIME, &_PPSD_.timeref);
     _PPSD_.hw_offset_ns = hw_offset_ns;
     return &_PPSD_;
+}
+
+static unsigned long ppsd_stats_init(struct ppsd_t * ppsd,
+                                     unsigned int drift_pps_nb,
+                                     unsigned int off_pps_nb) {
+    ass(ppsd->drift_stats == NULL);
+    ass(ppsd->off_stats == NULL);
+    ppsd->count = 0UL;
+    ppsd->outliers = 0UL;
+    ppsd_set_timeref(ppsd, NULL);
+    if (drift_pps_nb > 0u) {
+        ppsd->drift_stats = pps_stats_ctor(drift_pps_nb);
+        pps_stats_reset(ppsd->drift_stats, true);
+    }
+    if (off_pps_nb > 0u) {
+        ppsd->off_stats = pps_stats_ctor(off_pps_nb);
+        pps_stats_reset(ppsd->off_stats, true);
+    }
+    return (drift_pps_nb > off_pps_nb) ? drift_pps_nb : off_pps_nb;
+}
+
+struct ppsd_t * ppsd_open(char const * path,
+                          bool capture_assert,
+                          long hw_offset_ns,
+                          unsigned int drift_pps_count,
+                          unsigned int offset_pps_count) {
+    struct ppsd_t * ppsd = _ppsd_open(path, capture_assert, hw_offset_ns);
+    if (NULL == ppsd) {
+        return NULL;
+    }
+    adjtimex_snapshot(&ppsd->tx);
+    ppsd->cum_drift_ppb = adjtimex_get_freq();
+    fcmt(ppsderr, "%s\n", "ADJTIMEX at start:");
+    timex_flog(ppsderr, &ppsd->tx);
+    // TODO check return
+    ppsd_stats_init(ppsd, drift_pps_count, offset_pps_count);
+    return ppsd;
+}
+
+static int ppsd_stats_release(struct ppsd_t * ppsd) {
+    if (ppsd->drift_stats != NULL) {
+        pps_stats_dtor(ppsd->drift_stats);
+        ppsd->drift_stats = NULL;
+        return 0;
+    }
+    if (ppsd->off_stats != NULL) {
+        pps_stats_dtor(ppsd->off_stats);
+        ppsd->off_stats = NULL;
+    }
+    return 1;
 }
 
 void ppsd_close(struct ppsd_t * ppsd) {
@@ -132,55 +190,8 @@ time_t ppsd_set_timeref(struct ppsd_t * ppsd,
     return ppsd->timeref.tv_sec;
 }
 
-struct timespec const * ppsd_timeref(struct ppsd_t const * ppsd) {
-    return &ppsd->timeref;
-}
-
-struct timespec const * ppsd_timestamp(struct ppsd_t const * ppsd) {
-    return &ppsd->timestamp;
-}
-
-long long ppsd_offset_ns(struct ppsd_t const * ppsd) {
+static long long ppsd_offset_ns(struct ppsd_t const * ppsd) {
     return timespec_diff_ns(&ppsd->timestamp, &ppsd->timeref);
-}
-
-/*****************************************************************************
- *
- *****************************************************************************/
-int ppsd_stats_reset(struct ppsd_t * ppsd) {
-    ppsd->count = 0UL;
-    ppsd->outliers = 0UL;
-    ppsd_set_timeref(ppsd, NULL);
-    if (ppsd->stats != NULL) {
-        pps_stats_reset (ppsd->stats, true);
-        return 1;
-    }
-    return 0;
-}
-
-unsigned long ppsd_stats_init(struct ppsd_t * ppsd,
-                              unsigned int max_pps_count) {
-    if (ppsd->stats != NULL) {
-        slogout("%s\n", "Stats already initialized !!!");
-        return 0ul;
-    }
-    ppsd->stats = pps_stats_ctor(max_pps_count);
-    ppsd_stats_reset(ppsd);
-    return max_pps_count;
-}
-
-struct pps_stats_t const * ppsd_stats(struct ppsd_t const * ppsd) {
-    return ppsd->stats;
-}
-
-int ppsd_stats_release(struct ppsd_t * ppsd) {
-    if (ppsd->stats == NULL) {
-        slogerr("%s\n", "No stats to release");
-        return 0;
-    }
-    pps_stats_dtor(ppsd->stats);
-    ppsd->stats = NULL;
-    return 1;
 }
 
 /*****************************************************************************
@@ -188,7 +199,8 @@ int ppsd_stats_release(struct ppsd_t * ppsd) {
  *****************************************************************************/
 int ppsd_update(struct ppsd_t * ppsd, 
                 long double predict_ns,
-                long double dist2predict_max_ns) {
+                long double dist2predict_max_ns,
+                unsigned int options) {
 
     int ret = pps_get_timestamp(ppsd->_, &ppsd->timestamp);
     if (ret < 0) {
@@ -214,72 +226,47 @@ int ppsd_update(struct ppsd_t * ppsd,
     long long pps_off_ns = ppsd_offset_ns(ppsd);
     long double d2p = fabsl(pps_off_ns - predict_ns);
     bool outlier = (dist2predict_max_ns > 0.0L) && (d2p > dist2predict_max_ns);
+
+    // stats update and print
     if (outlier) {
         ppsd->outliers ++;
         slogdbg("outlier #%lu: offset %+lldns, estimate %+.0Lfns +/-%.0Lfns\n",
                 ppsd->outliers, pps_off_ns, predict_ns, dist2predict_max_ns);
+        fcmt(ppsdout, "%ld, %+9lld\n",
+             ppsd_timeref(ppsd)->tv_sec,
+             ppsd_offset_ns(ppsd));
     } else {
         ppsd->count ++;
+        if (ppsd->off_stats != NULL) {
+            (void)pps_stats_update(ppsd->off_stats,
+                                   ppsd_timeref(ppsd),
+                                   pps_off_ns);
+            pps_stats_flast(ppsdout, ppsd->off_stats, options);
+        }
+        if (ppsd->drift_stats != NULL) {
+            (void)pps_stats_update(ppsd->drift_stats,
+                                   ppsd_timeref(ppsd),
+                                   pps_off_ns + ppsd->cum_off_ns);
+            // TODO print drift stat on its own fd to check it
+            if (ppsd->off_stats == NULL) {
+                pps_stats_flast(ppsdout, ppsd->drift_stats, options);
+            }
+        }
     }
-    if ((ppsd->stats != NULL) && !outlier) {
-        (void)pps_stats_update(ppsd->stats, ppsd_timeref(ppsd), pps_off_ns);
-    }
-    
+
     return outlier ? 0 : 1;
 }
 
 /*****************************************************************************
  *
  *****************************************************************************/
-unsigned long ppsd_count(struct ppsd_t const * ppsd) {
-    return ppsd->count;
-}
-
-unsigned long ppsd_outliers(struct ppsd_t const * ppsd) {
-    return ppsd->outliers;
-}
-
-/*****************************************************************************
- *
- *****************************************************************************/
-struct ppsd_t * ppsd_init(char const * path,
-                          bool capture_assert,
-                          long hw_offset_ns,
-                          unsigned int max_pps_count) {
-    struct ppsd_t * ppsd = ppsd_open(path, capture_assert, hw_offset_ns);
-    if (NULL == ppsd) {
-        return NULL;
-    }
-    adjtimex_snapshot(&ppsd->tx);
-    fcmt(ppsderr, "%s\n", "ADJTIMEX at start:");
-    timex_flog(ppsderr, &ppsd->tx);
-    ppsd_stats_init(ppsd, max_pps_count); // TODO check return
-    return ppsd;
-}
-
-static int ppsd_update_out(struct ppsd_t * ppsd, 
-                           long double predict_ns,
-                           long double dist2predict_max_ns,
-                           unsigned int options) {
-    int ok = ppsd_update(ppsd, predict_ns, dist2predict_max_ns);
-    if (ok > 0) {
-        pps_stats_flast(ppsdout, ppsd_stats(ppsd), options);
-    } else if (ok == 0) {
-        // outlier
-        fcmt(ppsdout, "%ld, %+9lld\n",
-             ppsd_timeref(ppsd)->tv_sec,
-             ppsd_offset_ns(ppsd));
-    }
-    return ok;
-}
-
 unsigned int ppsd_do_stat(struct ppsd_t * ppsd,
                           bool reset_stat,
                           unsigned int pps_nb,
                           unsigned int options) {
     
     if (reset_stat) {
-        ppsd_stats_reset(ppsd);
+        pps_stats_reset (ppsd->drift_stats, true);
     }
   
     bool print = false;
@@ -288,20 +275,20 @@ unsigned int ppsd_do_stat(struct ppsd_t * ppsd,
         print = true;
         options &= ~((unsigned)PPS_STATS_PRINT);
     }
-    pps_stats_header(ppsdout, ppsd_stats(ppsd), options);
+    pps_stats_header(ppsdout, ppsd->drift_stats, options);
     
     unsigned int pps_cnt = 0u;
     // TODO optional filtering !
-    int ok = ppsd_update_out(ppsd, 0.0l, 0.0l, options);
+    int ok = ppsd_update(ppsd, 0.0l, 0.0l, options);
     while ( (ok >= 0) && (pps_cnt < pps_nb) ) {
         if (ok > 0) {
             pps_cnt ++;
-            estimate_set(&ppsd->est, ppsd, 0);
+            estimate_set(&ppsd->est, ppsd_timeref(ppsd), ppsd->drift_stats, 0);
         } else {
             // TODO a max nb of outliers to get out
             // TODO if estimate used to filter ?
         }
-        ok = ppsd_update_out(ppsd, 0.0l, 0.0l, options);
+        ok = ppsd_update(ppsd, 0.0l, 0.0l, options);
     }
     
     if (ok < 0) {
@@ -312,30 +299,14 @@ unsigned int ppsd_do_stat(struct ppsd_t * ppsd,
 
     if (print) {
         options |= PPS_STATS_PRINT;
-        pps_stats_flog(ppsdout, ppsd_stats(ppsd), options);
+        pps_stats_flog(ppsdout, ppsd->drift_stats, options);
     }
 
-    pps_stats_header2(ppsdout, ppsd_stats(ppsd), options);
+    pps_stats_header2(ppsdout, ppsd->drift_stats, options);
     slogout("%s", SLOG_CMT_STR);
-    pps_stats_fprint(ppsdout, ppsd_stats(ppsd), options);
+    pps_stats_fprint(ppsdout, ppsd->drift_stats, options);
 
     return pps_cnt;
-}
-
-/*****************************************************************************
- *
- *****************************************************************************/
-long long ppsd_est_offset_ns (struct ppsd_t const * ppsd,
-                              struct timespec const * ts) {
-    return estimate_get(&ppsd->est, ts);
-}
-
-long long ppsd_est_drift_ppb (struct ppsd_t const * ppsd) {
-    return ppsd->est.drift_ppb;
-}
-
-long long ppsd_est_stddev_ns (struct ppsd_t const * ppsd) {
-    return estimate_stddev(&ppsd->est);
 }
 
 /*****************************************************************************
@@ -347,25 +318,71 @@ static void _update_adjtimex_fd(void) {
     adjtimex_stddbg = ppsddbg;
 }
 
-int ppsd_adj_freq_ppb(struct ppsd_t * ppsd) {
+int ppsd_adj_freq_ppb(struct ppsd_t * ppsd, long ppb) {
     _update_adjtimex_fd();
     if (adjtimex_snapshot(&ppsd->tx) > 0) {
         fcmt(ppsdout, "%s\n", "ADJTIMEX change detected:");
         timex_flog(ppsdout, &ppsd->tx);
     }
     long freq_ppb = adjtimex_get_freq();
-    // TODO if freq_ppb < stddev / nb_pps ?
-    int ret = adjtimex_adj_freq(-ppsd_est_drift_ppb(ppsd));
+    int ret = adjtimex_adj_freq(ppb);
+    ppsd->cum_drift_ppb += ppb;
     adjtimex_snapshot(&ppsd->tx);
-    fcmt(ppsdout, "ADJTIMEX adj freq %+ldppb by %+lldppb = %+ldppb return %d\n",
-         freq_ppb, -ppsd_est_drift_ppb(ppsd), adjtimex_get_freq(), ret);
+    fcmt(ppsdout, "ADJTIMEX adj freq %+ldppb by %+ldppb = %+ldppb return %d\n",
+         freq_ppb, ppb, adjtimex_get_freq(), ret);
     return ret;
 }
 
+int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
+                       long corr_ns,
+                       unsigned int options) {
+    _update_adjtimex_fd();
+    if (adjtimex_snapshot(&ppsd->tx) > 0) {
+        fcmt(ppsdout, "%s\n", "ADJTIMEX change detected:");
+        timex_flog(ppsdout, &ppsd->tx);
+    }
+    int ret = 0;
+    if ( (corr_ns > -1000*1000) && (corr_ns < +1000*1000) ) {
+        long acorr_ns = (corr_ns > 0) ? (+corr_ns) : (-corr_ns);
+        long max_ppb = 100*1000;
+        long s = acorr_ns / max_ppb;
+        if (s <= 0) {
+            ret = adjtimex_adj_freq(+corr_ns);
+            ppsd_update(ppsd, 0.0l, 0.0l, options);
+            ret = adjtimex_adj_freq(-corr_ns);
+        } else {
+            long ppb = (corr_ns > 0) ? (+max_ppb) : (-max_ppb);
+            ret = adjtimex_adj_freq(+ppb);
+            long k = 0;
+            while (k < s) {
+                ppsd_update(ppsd, 0.0l, 0.0l, options);
+                k ++;
+            }
+            ret = adjtimex_adj_freq(-ppb);
+            ppb = (corr_ns > 0) ? (corr_ns - s*max_ppb)
+                                : (corr_ns + s*max_ppb);
+            ret = adjtimex_adj_freq(+ppb);
+            ppsd_update(ppsd, 0.0l, 0.0l, options);
+            ret = adjtimex_adj_freq(-ppb);
+        }
+    } else {
+        ret = adjtimex_set_offset(corr_ns);
+    }
+    ppsd->cum_off_ns -= corr_ns;
+    adjtimex_snapshot(&ppsd->tx);
+    fcmt(ppsdout, "ADJTIMEX set offset %+ldns return %d\n",
+         corr_ns, ret);
+    return ret;
+}
+
+/*****************************************************************************
+ *
+ *****************************************************************************/
 static long long _ppsd_est_offset_ns (struct ppsd_t const * ppsd,
                                       struct timespec const * ts) {
-    long long off_ns = ppsd_est_offset_ns(ppsd, ts);
-    long long stddev_ns = ppsd_est_stddev_ns(ppsd);
+    long long off_ns = estimate_get(&ppsd->est, ts);
+    long long stddev_ns = ppsd->est.stddev_ns;
+    ass(stddev_ns >= 0);
     if ( (off_ns > -stddev_ns) && (off_ns < +stddev_ns) ) {
         fcmt(ppsdout, "OFFSET |%+lldns| < std dev %lldns, no offset adj.\n",
              off_ns, stddev_ns);
@@ -374,56 +391,91 @@ static long long _ppsd_est_offset_ns (struct ppsd_t const * ppsd,
     return off_ns;
 }
 
-int ppsd_set_offset_ns(struct ppsd_t * ppsd) {
-    long long corr_ns = -_ppsd_est_offset_ns(ppsd, NULL);
-    if ( true && (corr_ns  == 0ll) ) {
-        return 0;
-    }
-    _update_adjtimex_fd();
-    if (adjtimex_snapshot(&ppsd->tx) > 0) {
-        fcmt(ppsdout, "%s\n", "ADJTIMEX change detected:");
-        timex_flog(ppsdout, &ppsd->tx);
-    }
-    int ret = adjtimex_set_offset(corr_ns);
-    adjtimex_snapshot(&ppsd->tx);
-    fcmt(ppsdout, "ADJTIMEX set offset %+lldns return %d\n",
-         corr_ns, ret);
-    return ret;
-}
+/*****************************************************************************
+ *
+ *****************************************************************************/
+int ppsd_run(struct ppsd_t * ppsd,
+             long min_drift_ppb,
+             long max_drift_ppb,
+             long min_offset_ns,
+             long max_offset_ns) {
+    
+    unsigned int options = PPS_STATS_PRINT
+                                   | PPS_STATS_PRINT_ABS_TREF
+                                   //| PPS_STATS_PRINT_MEDIAN FIXME
+                                   | PPS_STATS_PRINT_MEAN
+                                   | PPS_STATS_PRINT_DRIFT
+                                   | PPS_STATS_PRINT_STDDEV;
 
-int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
-                       long max_ppb,
-                       unsigned int options) {
-    long long ppb = _ppsd_est_offset_ns(ppsd, NULL);
-    if ( true && (ppb == 0ll) ) {
-        return 0;
+    pps_stats_header(ppsdout, ppsd->drift_stats, options);
+
+    int off_nb = pps_stats_max_length(ppsd->off_stats);
+    int drift_nb = pps_stats_max_length(ppsd->drift_stats);
+    int pps_nb = (off_nb > drift_nb) ? off_nb : drift_nb;
+    if (pps_nb <= 0) {
+        slogdbg("%s\n", "Continuous stats");
+        pps_nb = INT_MAX;
     }
-    _update_adjtimex_fd();
-    if (adjtimex_snapshot(&ppsd->tx) > 0) {
-        fcmt(ppsdout, "%s\n", "ADJTIMEX change detected:");
-        timex_flog(ppsdout, &ppsd->tx);
+
+    // TODO optional filtering !
+    int pps_cnt = 0u;
+    int ok = ppsd_update(ppsd, 0.0l, 0.0l, options);
+    while ( (ok >= 0) && (pps_cnt < pps_nb) ) {
+        if (ok > 0) {
+            pps_cnt ++;
+            if ( (off_nb > 0) && (pps_cnt % off_nb == 0) ) {
+                // offset
+                pps_stats_header2(ppsdout, ppsd->off_stats, options);
+                slogout("%s", SLOG_CMT_STR);
+                pps_stats_fprint(ppsdout, ppsd->off_stats, options);
+                estimate_set(&ppsd->est,
+                             ppsd_timeref(ppsd),
+                             ppsd->off_stats,
+                             0);
+                long long corr_ns = -_ppsd_est_offset_ns(ppsd, NULL);
+                if ( (corr_ns != 0) 
+                        && (-corr_ns > min_offset_ns)
+                        && (-corr_ns < max_offset_ns) ) {
+                    // set offset and increment
+                    ppsd_adj_offset_ns(ppsd, corr_ns, options);
+                    ppsd->cum_off_ns += corr_ns;
+                } else {
+                    // TODO TODO TODO
+                }
+                pps_stats_reset(ppsd->off_stats, true);
+            }
+            if ( (drift_nb > 0) && (pps_cnt % drift_nb == 0) ) {
+                // drift
+                pps_stats_header2(ppsdout, ppsd->drift_stats, options);
+                slogout("%s", SLOG_CMT_STR);
+                pps_stats_fprint(ppsdout, ppsd->drift_stats, options);
+                estimate_set(&ppsd->est,
+                             ppsd_timeref(ppsd),
+                             ppsd->drift_stats,
+                             0);
+                long long ppb = ppsd->est.drift_ppb;
+                if ( (ppb > min_drift_ppb) && (ppb < max_drift_ppb) ) {
+                    ppsd_adj_freq_ppb(ppsd, -ppb);
+                    ppsd->cum_drift_ppb -= ppb;
+                } else {
+                // TODO TODO TODO
+                }
+                ppsd->cum_off_ns = 0;
+                pps_stats_reset(ppsd->drift_stats, true);
+            }
+        } else {
+            // TODO a max nb of outliers to get out
+            // TODO if estimate used to filter ?
+        }
+        ok = ppsd_update(ppsd, 0.0l, 0.0l, options);
     }
-    // TODO in 1s or more !
-    long appb = (ppb > 0l) ? (+ppb) : (-ppb);
-    long s = appb / max_ppb;
-    if (s == 0) {
-        // only 1s using offset_ns for freq adj
-        s = 1;
-    } else {
-        ppb = (ppb > 0l) ? (+max_ppb) : (-max_ppb);
-        // TODO remaining appb % max_ppb 
+    
+    if (ok < 0) {
+        slogerr("%sReturning after %u/%u PPS\n",
+                SLOG_CMT_STR, pps_cnt, pps_nb);
+        return -1;
     }
-    long freq_ppb = adjtimex_get_freq();
-    int ret = adjtimex_adj_freq(-ppb);
-    fcmt(ppsdout,
-         "ADJTIMEX freq %+ldppb %+lldppb for %lds = %+ldppb return %d\n",
-         freq_ppb, -ppb, s, adjtimex_get_freq(), ret);
-    while (s > 0) {
-        ppsd_update_out(ppsd, 0.0l, 0.0l, options);
-        s --;
-    }
-    ret = adjtimex_adj_freq(+ppb);
-    adjtimex_snapshot(&ppsd->tx);
-    return ret;
+
+    return pps_cnt;
 }
 

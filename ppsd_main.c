@@ -42,7 +42,7 @@ static struct option long_opts[] = {
     /* PPS parameters */
     {"pps-assert", no_argument, NULL, 'A'},
     {"pps-clear", no_argument, NULL, 'C'},
-    //{"pps-offset", required_argument, NULL, 'H'},
+    {"pps-hw-offset", required_argument, NULL, 'H'},
 
     /* drift parameters */
     {"drift-min", optional_argument, NULL, 'd'},
@@ -69,7 +69,7 @@ static char const * opts_usage[] = {
     /* PPS parameters */
     ": use PPS assert (rising edge).",
     ": use PPS clear (falling edge), default.",
-    //"OFFSET : offset of the PPS edge if known, in ns, none per default.",
+    "OFFSET : offset of the PPS edge if known, in ns, none per default.",
     /* drift parameters */
     "DRIFT_MIN : under this value (in ppb), no drift correction.",
     "DRIFT_MAX : over this value (in ppb), no drift correction.",
@@ -89,26 +89,19 @@ static char const * opts_usage[] = {
 
 static char const * long_descr =
 "Displays the reference time, the PPS timestamp and the difference between\n"
-"each in nanoseconds. Displayed times are in UNIX format (offcourse).\n"
-"Once the number of PPS is reached, or on a PPS timeout, it displays stats\n"
-"on the measured offsets.\n"
+"each in nanoseconds. Displayed times are in UNIX format (off course).\n"
+"Once the number of PPS is reached, or on a PPS timeout, it displays\n"
+"statisticss on the measured offsets. These can be used to correct the CLK\n"
+"frequency and/or offset.\n"
 "\n"
 "To use this program you must:\n"
 "\t-have linuxpps installed and propperly running, in doubt use one of\n"
 "\t pps-tools provided;\n"
 "\t-have root privilege to access PPS, and obviously setting the clock;\n"
-"\t-stop any time synchronizing service like NTPD, CHRONYD, PTP...\n"
+"\t-if doing correction, stop any time synchronizing service like NTPD,\n"
+"\t CHRONYD, PTP...\n"
 "\n"
-"TODO:\n"
-"\t-sort what should being displayed on stderr or stdout.\n"
-"\t-removing outliers before to calulate offset\'s drift and mean.\n"
-"\t-use \"adjtimex\" for less than +/-100ms clock adjustements.\n"
-"\t-Why do I need to reboot my system to detect PPS if it is hot plugged ?\n"
-"\t-after a while, /dev/pps0 disapear with the only revelant message from\n"
-"\t dmesg being \'pps pps0: removed\' ! Need to do \n"
-"\t \'ldattach -d PPS /dev/ttyS0\' again to get it back! GPSD do not retrieve\n"
-"\t it without being relaunched... Maybe same problem than the previous one ?\n"
-"\t That\'s why \"ldattach -d\" to investigate...\n"
+"TODO: A 2nd argument to record in a file instead of stdout.\n"
 "\n";
 
 int main(int argc, char *argv[]) {
@@ -165,9 +158,9 @@ int main(int argc, char *argv[]) {
             case 'C':
             pps_capture_assert = false;
             break;
-            /*case 'H':
+            case 'H':
             pps_hw_offset_ns = atol(optarg);
-            break;*/
+            break;
             // Drift parameters ///////////////////////////////////////////////
             case 'D':
             if (optarg != NULL) {
@@ -217,7 +210,8 @@ int main(int argc, char *argv[]) {
             break;
             ///////////////////////////////////////////////////////////////////
             default:
-	    printf ("invalide option %c\n", opt);
+            printf ("Invalid option %c\n", opt);
+            // FALLTHROUGH
             case 'h':
             print_usage(argv[0], short_descr,
                         long_opts, opts_usage, long_descr);
@@ -230,9 +224,10 @@ int main(int argc, char *argv[]) {
         strncpy(pps_path, argv[optind], 255);
     }
 
-    struct ppsd_t * ppsd = ppsd_init(pps_path,
+    struct ppsd_t * ppsd = ppsd_open(pps_path,
                                      pps_capture_assert,
                                      pps_hw_offset_ns,
+                                     pps_nb,
                                      pps_nb);
     if (ppsd == NULL) exit (EXIT_FAILURE);
     
@@ -241,6 +236,11 @@ int main(int argc, char *argv[]) {
     // 96s or so of stats (no reset), compensate the drift
     bool stat_reset = false;
     do {
+        // FIXME IT SHOULD BE:
+        //     - a long statistics for drift
+        //     - a short statistics for offset
+        // and when correcting offset, add the correction to the following
+        // thus we can evaluate drift on more than 1 offset cycle.
         unsigned long ret = ppsd_do_stat(ppsd,
                                          stat_reset,
                                          pps_nb,

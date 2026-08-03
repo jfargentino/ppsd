@@ -15,14 +15,16 @@ extern FILE * ppsddbg;
 struct ppsd_t;
 
 /*
- * Open the PPSD sinleton instance.
+ * Open the PPSD singleton instance and its statistics for drift/offset
  *      - path: PPS device (eg "/dev/pps0").
  *      - capture_assert: PPS on rising edge if true, falling edge otherwise.
  *      - hw_offset_ns: PPS offset in ns, if any. Can be negative.
  */
 struct ppsd_t * ppsd_open(char const * path,
                           bool capture_assert,
-                          long hw_offset_ns);
+                          long hw_offset_ns,
+                          unsigned int drift_pps_count,
+                          unsigned int offset_pps_count);
 
 /* 
  * Set the time reference, i.e. the "absolute real" timestamp of the last PPS.
@@ -32,59 +34,43 @@ struct ppsd_t * ppsd_open(char const * path,
 time_t ppsd_set_timeref(struct ppsd_t * ppsd,
                         struct timespec const * timeref);
 
+/*
+ * Wait for a PPS, add it to statistics if offset is near prediction.
+ * If given max distance is <= 0, no fitering.
+ */
 int ppsd_update(struct ppsd_t * ppsd,
                 long double predict_ns,
-                long double dist2predict_max_ns);
+                long double dist2predict_max_ns,
+                unsigned int options);
 
 void ppsd_close(struct ppsd_t * ppsd);
 
-/*****************************************************************************
- *
- *****************************************************************************/
-struct ppsd_t * ppsd_init(char const * path,
-                          bool capture_assert,
-                          long hw_offset_ns,
-                          unsigned int max_pps_count);
-
+/*
+ * Do PPS on the next "pps_nb" PPS offsets.
+ */
 unsigned int ppsd_do_stat(struct ppsd_t * ppsd,
                           bool reset_stat,
                           unsigned int pps_nb,
                           unsigned int options);
- 
-long long ppsd_est_offset_ns(struct ppsd_t const * ppsd,
-                             struct timespec const * ts);
 
-long long ppsd_est_drift_ppb(struct ppsd_t const * ppsd);
+/*
+ * Adjust the CLK frequency with the last estimated drift.
+ */
+int ppsd_adj_freq_ppb(struct ppsd_t * ppsd, long ppb);
 
-long long ppsd_est_stddev_ns (struct ppsd_t const * ppsd);
-
-int ppsd_adj_freq_ppb(struct ppsd_t * ppsd);
-
-int ppsd_set_offset_ns(struct ppsd_t * ppsd);
-
+/*
+ * Abruptly set the CLK to account the last estimated offset.
+ * TODO Temporary adjust the CLK freq to account the last estimated offset.
+ */
 int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
-                       long max_ppb,
+                       long corr_ns,
                        unsigned int options);
 
-/*****************************************************************************
- *
- *****************************************************************************/
-struct timespec const * ppsd_timeref(struct ppsd_t const * ppsd);
-
-struct timespec const * ppsd_timestamp(struct ppsd_t const * ppsd);
-
-long long ppsd_offset_ns(struct ppsd_t const * ppsd);
-
-/*****************************************************************************
- *
- *****************************************************************************/
-unsigned long ppsd_stats_init(struct ppsd_t * ppsd,
-                              unsigned int max_pps_count);
-int ppsd_stats_reset(struct ppsd_t * ppsd);
-struct pps_stats_t const * ppsd_stats(struct ppsd_t const * ppsd);
-unsigned long ppsd_count(struct ppsd_t const * ppsd);
-unsigned long ppsd_outliers(struct ppsd_t const * ppsd);
-int ppsd_stats_release(struct ppsd_t * ppsd);
+int ppsd_run(struct ppsd_t * ppsd,
+             long min_drift_ppb,
+             long max_drift_ppb,
+             long min_offset_ns,
+             long max_offset_ns);
 
 #endif
 

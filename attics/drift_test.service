@@ -1,0 +1,15 @@
+[Unit]
+Description=Drift correction using GPSD+PPS
+After=gpsd.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=30
+User=root
+ExecStart=/usr/bin/env bash /home/alma/drift_eval/drift.sh
+WorkingDirectory=/home/alma/drift_eval
+
+[Install]
+WantedBy=chronyd.service
+

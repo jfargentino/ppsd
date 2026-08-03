@@ -1,0 +1,97 @@
+
+Disable CPU C-States: Force the CPU to stay in C₀ (active running state) to prevent the caches from powering down between pulses. Add intel_idle.max_cstate=0 and processor.max_cstate=0 to your Linux kernel boot parameters.
+
+Isolate the Handling Core: Use the isolcpus or nohz_full boot options to dedicate a specific CPU core purely to critical tasks, preventing other user applications from evicting your PPS driver code from the L₁/L₂ caches. 
+
+Pin Interrupts (IRQ Affinity): Direct the specific hardware interrupt of your serial/GPIO pin to your isolated CPU core by modifying the /proc/irq/IRQ_NUMBER/smp_affinity file. 
+
+Use Real-Time Kernel Patches: The PREEMPT_RT patch minimizes kernel scheduling latencies, ensuring the timestamping code executes immediately when the hardware interrupt fires. 
+
+
+
+/* Structure du filtre de Kalman */
+typedef struct {
+  double x[2];  /* État : offset (x[0]), dérive (x[1]) */
+  double P[2][2];  /* Covariance */
+  double F[2][2];  /* Matrice de transition */
+  double H[2];     /* Matrice d'observation */
+  double Q[2][2];  /* Bruit du processus */
+  double R;        /* Bruit de mesure */
+} KAL_Instance;
+
+/* Prédiction de l'état */
+void KAL_Predict(KAL_Instance *kal, double dt) {
+  /* x_k|k-1 = F * x_k-1|k-1 */
+  double new_x0 = kal->x[0] + kal->x[1] * dt;
+  double new_x1 = kal->x[1];
+  kal->x[0] = new_x0;
+  kal->x[1] = new_x1;
+
+  /* P_k|k-1 = F * P_k-1|k-1 * F^T + Q */
+  double new_P00 = kal->P[0][0] + 2 * kal->P[0][1] * dt + kal->P[1][1] * dt * dt + kal->Q[0][0];
+  double new_P01 = kal->P[0][1] + kal->P[1][1] * dt + kal->Q[0][1];
+  double new_P11 = kal->P[1][1] + kal->Q[1][1];
+  kal->P[0][0] = new_P00;
+  kal->P[0][1] = new_P01;
+  kal->P[1][0] = new_P01;
+  kal->P[1][1] = new_P11;
+}
+
+/* Mise à jour de l'état */
+void KAL_Update(KAL_Instance *kal, double measurement) {
+  /* y = z - H * x_k|k-1 */
+  double y = measurement - kal->x[0];
+
+  /* S = H * P_k|k-1 * H^T + R */
+  double S = kal->P[0][0] + kal->R;
+
+  /* K = P_k|k-1 * H^T / S */
+  double K0 = kal->P[0][0] / S;
+  double K1 = kal->P[1][0] / S;
+
+  /* x_k|k = x_k|k-1 + K * y */
+  kal->x[0] += K0 * y;
+  kal->x[1] += K1 * y;
+
+  /* P_k|k = (I - K * H) * P_k|k-1 */
+  double new_P00 = (1 - K0) * kal->P[0][0];
+  double new_P01 = (1 - K0) * kal->P[0][1];
+  double new_P11 = kal->P[1][1] - K1 * kal->P[0][1];
+  kal->P[0][0] = new_P00;
+  kal->P[0][1] = new_P01;
+  kal->P[1][0] = new_P01;
+  kal->P[1][1] = new_P11;
+}
+
+/* Structure pour accumuler les mesures */
+typedef struct {
+  double sum_x, sum_y, sum_xy, sum_xx;  /* Pour la régression linéaire */
+  int n_samples;  /* Nombre de mesures accumulées */
+  double last_offset, last_drift;
+} NCR_Instance;
+
+/* Ajoute une mesure (offset) au filtre */
+void NCR_AccumulateSample(NCR_Instance *ncr, double offset, double timestamp) {
+  ncr->sum_x += timestamp;
+  ncr->sum_y += offset;
+  ncr->sum_xy += timestamp * offset;
+  ncr->sum_xx += timestamp * timestamp;
+  ncr->n_samples++;
+
+  /* Si assez de mesures, recalcule la régression */
+  if (ncr->n_samples >= NCR_MIN_SAMPLES) {
+    NCR_UpdateRegParams(ncr);
+  }
+}
+
+/* Met à jour les paramètres de régression (offset et dérive) */
+void NCR_UpdateRegParams(NCR_Instance *ncr) {
+  double denominator = ncr->n_samples * ncr->sum_xx - ncr->sum_x * ncr->sum_x;
+  if (denominator != 0.0) {
+    /* Calcul de la dérive (pente) */
+    ncr->last_drift = (ncr->n_samples * ncr->sum_xy - ncr->sum_x * ncr->sum_y) / denominator;
+    /* Calcul de l'offset (interception) */
+    ncr->last_offset = (ncr->sum_y - ncr->last_drift * ncr->sum_x) / ncr->n_samples;
+  }
+}
+

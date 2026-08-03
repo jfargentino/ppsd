@@ -101,6 +101,11 @@ void pps_stats_dtor(struct pps_stats_t * stats) {
 /*****************************************************************************
  * Getters
  *****************************************************************************/
+unsigned int pps_stats_max_length(struct pps_stats_t const * stats) {
+    ass(stats != NULL);
+    return stats->length;
+}
+
 unsigned int pps_stats_length(struct pps_stats_t const * stats) {
     ass(stats != NULL);
     return (stats->is_full > 0UL) ? stats->length : stats->oldest;
@@ -383,9 +388,9 @@ static long double _pps_stats_cums(struct pps_stats_t const * stats,
     return cum2;
 }
 
-long double pps_stats_var(struct pps_stats_t const * stats,
-                          long double * mean,
-                          unsigned int window) {
+static long double pps_stats_var(struct pps_stats_t const * stats,
+                                 long double * mean,
+                                 unsigned int window) {
     unsigned int length = pps_stats_length(stats);
     if (length == 0u) {
         slogdbg("%s !!!\n", "empty");
@@ -406,6 +411,17 @@ long double pps_stats_var(struct pps_stats_t const * stats,
     }
     return (cum2 - (long double)length*m*m) 
                  / (long double)(length - PPS_STATS_VAR_UNBIASED);
+}
+
+long double pps_stats_mean(struct pps_stats_t const * stats,
+                           long double * stddev,
+                           unsigned int window) {
+    long double mean = 0.0l;
+    long double var = pps_stats_var(stats, &mean, window);
+    if (stddev != NULL) {
+        *stddev = sqrtl(var);
+    }
+    return mean;
 }
 
 /*****************************************************************************
@@ -452,9 +468,9 @@ static long double _pps_stats_tsvar(struct pps_stats_t const * stats,
                  / (long double)(k - PPS_STATS_VAR_UNBIASED);
 }
 
-long double pps_stats_covar (struct pps_stats_t const * stats,
-                             long double * var_ts,
-                             unsigned int window) {
+static long double pps_stats_covar (struct pps_stats_t const * stats,
+                                    long double * var_ts,
+                                    unsigned int window) {
     unsigned k = window;
     if ((k == 0u) || (k > pps_stats_length(stats))) {
         k = pps_stats_length(stats);
