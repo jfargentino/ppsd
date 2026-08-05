@@ -37,7 +37,8 @@ static char const * short_descr =
 static struct option long_opts[] = {
 
     {"once", no_argument, NULL, '1'},
-    {"nb", required_argument, NULL, 'N'},
+    {"drift-nb", required_argument, NULL, 'N'},
+    {"off-nb", required_argument, NULL, 'n'},
     
     /* PPS parameters */
     {"pps-assert", no_argument, NULL, 'A'},
@@ -65,7 +66,8 @@ static struct option long_opts[] = {
 
 static char const * opts_usage[] = {
     ": do once, drift and offset, then exit.",
-    "NB : nb of PPS for statistics, 96 per default.",
+    "NB : nb of PPS for drift evaluation, 96s per default.",
+    "NB : nb of PPS for offset evaluation, 8s per default.",
     /* PPS parameters */
     ": use PPS assert (rising edge).",
     ": use PPS clear (falling edge), default.",
@@ -123,15 +125,15 @@ int main(int argc, char *argv[]) {
     bool pps_capture_assert = false;
     long pps_hw_offset_ns = 0L;
     
-    long pps_nb = 96;
+    long drift_nb = 96;
+    long off_nb = 8;
     bool once = false;
 
     long long drift_max_ppb = 0; // Do not adjust clock freq per default
     long long drift_min_ppb = 0;
 
-    bool offset_corr = false;
-    long long offset_min_ns = -500000000; // -500ms -> always adjust when neg
-    long long offset_max_ns = +1000000; // if > +1ms, coarse offset correction
+    long long offset_min_ns = 0; // -500ms -> always adjust when neg
+    long long offset_max_ns = 0; // if > +1ms, coarse offset correction
     
     unsigned int stat_options = PPS_STATS_PRINT
                                    | PPS_STATS_PRINT_ABS_TREF
@@ -149,7 +151,10 @@ int main(int argc, char *argv[]) {
             once = true;
             break;
             case 'N':
-            pps_nb = atol(optarg);
+            drift_nb = atol(optarg);
+            break;
+            case 'n':
+            off_nb = atol(optarg);
             break;
             // PPS parameters ////////////////////////////////////////////////
             case 'A':
@@ -177,21 +182,18 @@ int main(int argc, char *argv[]) {
             }
             break;
             // Offset parameters //////////////////////////////////////////////
-            case 'c':
-            offset_corr = true;
-            break;
             case 'o':
             if (optarg != NULL) {
                 offset_min_ns = atol(optarg);
             } else {
-                offset_min_ns = -10*1000*1000;
+                offset_min_ns = -500*1000*1000;
             }
             break;
             case 'O':
             if (optarg != NULL) {
                 offset_max_ns = atol(optarg);
             } else {
-                offset_max_ns = +10*1000*1000;
+                offset_max_ns = +500*1000*1000;
             }
             break;
             // Verbosity //////////////////////////////////////////////////////
@@ -227,54 +229,18 @@ int main(int argc, char *argv[]) {
     struct ppsd_t * ppsd = ppsd_open(pps_path,
                                      pps_capture_assert,
                                      pps_hw_offset_ns,
-                                     pps_nb,
-                                     pps_nb);
+                                     drift_nb,
+                                     off_nb);
     if (ppsd == NULL) exit (EXIT_FAILURE);
     
-    // TODO
-    // 16s or so of stats, compensate the offset
-    // 96s or so of stats (no reset), compensate the drift
-    bool stat_reset = false;
     do {
-        // FIXME IT SHOULD BE:
-        //     - a long statistics for drift
-        //     - a short statistics for offset
-        // and when correcting offset, add the correction to the following
-        // thus we can evaluate drift on more than 1 offset cycle.
-        unsigned long ret = ppsd_do_stat(ppsd,
-                                         stat_reset,
-                                         pps_nb,
-                                         stat_options);
-        if (ret == 0u) {
+        int ret = ppsd_run (ppsd, 
+                            drift_min_ppb,
+                            drift_max_ppb,
+                            offset_min_ns,
+                            offset_max_ns);
+        if (ret < 0) {
             once = true;
-        } else {
-            stat_reset = false;
-            long long offset_ns = ppsd_est_offset_ns(ppsd, NULL);
-            long long drift_ppb = ppsd_est_drift_ppb(ppsd);
-            long long stddev_ns = ppsd_est_stddev_ns(ppsd);
-            fcmt(ppsdout, "ESTIMATION %+lldns@%+lldppb, stddev %lldns\n",
-                 offset_ns, drift_ppb, stddev_ns);
-            // Offset correction
-            if (offset_corr) {
-                if ( (offset_ns > offset_min_ns)
-                        && (offset_ns < offset_max_ns) ) {
-                    ppsd_adj_offset_ns(ppsd, 200*1000, stat_options);
-                } else {
-                    // Coarse correction
-                    ppsd_set_offset_ns(ppsd);
-                }
-                stat_reset = true;
-            }
-            // Drift Correction
-            long long appb = (drift_ppb < 0) ? (-drift_ppb) : (+drift_ppb);
-            if ( (appb < drift_max_ppb) && (appb > drift_min_ppb) ) {
-                ppsd_adj_freq_ppb(ppsd);
-                stat_reset = true;
-            } else if (drift_min_ppb || drift_max_ppb) {
-                fcmt(ppsdout,
-                     "DRIFT %+lldppb not in +/-[%lld, %lld]ppb, no freq adj.\n",
-                     drift_ppb, drift_min_ppb, drift_max_ppb);
-            }
         }
     } while (once == false);
 
