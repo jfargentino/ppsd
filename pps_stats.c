@@ -102,8 +102,7 @@ void pps_stats_dtor(struct pps_stats_t * stats) {
  * Getters
  *****************************************************************************/
 unsigned int pps_stats_max_length(struct pps_stats_t const * stats) {
-    ass(stats != NULL);
-    return stats->length;
+    return (stats == NULL) ? 0 : stats->length;
 }
 
 unsigned int pps_stats_length(struct pps_stats_t const * stats) {

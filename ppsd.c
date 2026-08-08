@@ -342,7 +342,7 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
         timex_flog(ppsdout, &ppsd->tx);
     }
     int ret = 0;
-    if ( (corr_ns > -1000*1000) && (corr_ns < +1000*1000) ) {
+    if ( (false) && (corr_ns > -1000*1000) && (corr_ns < +1000*1000) ) {
         long acorr_ns = (corr_ns > 0) ? (+corr_ns) : (-corr_ns);
         long max_ppb = 100*1000;
         long s = acorr_ns / max_ppb;
@@ -370,8 +370,8 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
     }
     ppsd->cum_off_ns -= corr_ns;
     adjtimex_snapshot(&ppsd->tx);
-    fcmt(ppsdout, "ADJTIMEX set offset %+ldns return %d\n",
-         corr_ns, ret);
+    fcmt(ppsdout, "ADJTIMEX set offset %+ldns (cum %+lldns) return %d\n",
+         corr_ns, ppsd->cum_off_ns, ret);
     return ret;
 }
 
@@ -438,7 +438,6 @@ int ppsd_run(struct ppsd_t * ppsd,
                         && (-corr_ns < max_offset_ns) ) {
                     // set offset and increment
                     ppsd_adj_offset_ns(ppsd, corr_ns, options);
-                    ppsd->cum_off_ns += corr_ns;
                 } else {
                     // TODO TODO TODO
                 }
@@ -454,7 +453,8 @@ int ppsd_run(struct ppsd_t * ppsd,
                              ppsd->drift_stats,
                              0);
                 long long ppb = ppsd->est.drift_ppb;
-                if ( (ppb > min_drift_ppb) && (ppb < max_drift_ppb) ) {
+		long long appb = (ppb > 0) ? (+ppb) : (-ppb);
+                if ( (appb > min_drift_ppb) && (appb < max_drift_ppb) ) {
                     ppsd_adj_freq_ppb(ppsd, -ppb);
                     ppsd->cum_drift_ppb -= ppb;
                 } else {
