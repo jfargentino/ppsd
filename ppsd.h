@@ -46,28 +46,26 @@ int ppsd_update(struct ppsd_t * ppsd,
 void ppsd_close(struct ppsd_t * ppsd);
 
 /*
- * Do PPS on the next "pps_nb" PPS offsets.
- */
-unsigned int ppsd_do_stat(struct ppsd_t * ppsd,
-                          bool reset_stat,
-                          unsigned int pps_nb,
-                          unsigned int options);
-
-/*
  * Adjust the CLK frequency with the last estimated drift.
  */
-int ppsd_adj_freq_ppb(struct ppsd_t * ppsd, long ppb);
+int ppsd_adj_drift_ppb(struct ppsd_t * ppsd, long max_drift_ppb);
 
 /*
  * Abruptly set the CLK to account the last estimated offset.
  * TODO Temporary adjust the CLK freq to account the last estimated offset.
+ *
+ *   -500ms       0       +500ms
+ * ----|======++++|++++======|----
+ * ----|----------|----------|----
+ * ----|==========|==========|----
+ * ----|======++++|++++++++++|----
  */
 int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
-                       long corr_ns,
+                       long min_offset_ns,
+                       long max_offset_ns,
                        unsigned int options);
 
 int ppsd_run(struct ppsd_t * ppsd,
-             long min_drift_ppb,
              long max_drift_ppb,
              long min_offset_ns,
              long max_offset_ns);

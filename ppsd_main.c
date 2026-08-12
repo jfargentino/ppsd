@@ -37,8 +37,8 @@ static char const * short_descr =
 static struct option long_opts[] = {
 
     {"once", no_argument, NULL, '1'},
-    {"drift-nb", required_argument, NULL, 'N'},
-    {"off-nb", required_argument, NULL, 'n'},
+    {"nb-drift", required_argument, NULL, 'N'},
+    {"nb-offset", required_argument, NULL, 'n'},
     
     /* PPS parameters */
     {"pps-assert", no_argument, NULL, 'A'},
@@ -46,11 +46,9 @@ static struct option long_opts[] = {
     {"pps-hw-offset", required_argument, NULL, 'H'},
 
     /* drift parameters */
-    {"drift-min", optional_argument, NULL, 'd'},
     {"drift-max", optional_argument, NULL, 'D'},
     
     /* offset parameters */
-    {"offset-corr", no_argument, NULL, 'c'},
     {"offset-min", optional_argument, NULL, 'o'},
     {"offset-max", optional_argument, NULL, 'O'},
 
@@ -73,16 +71,14 @@ static char const * opts_usage[] = {
     ": use PPS clear (falling edge), default.",
     "OFFSET : offset of the PPS edge if known, in ns, none per default.",
     /* drift parameters */
-    "DRIFT_MIN : under this value (in ppb), no drift correction.",
     "DRIFT_MAX : over this value (in ppb), no drift correction.",
     /* offset parameters */
-    " : offset correction, none per default.",
     "OFFSET_MIN : under this value (in ns), no offset correction.",
     "OFFSET_MAX : over this value (in ns), no offset correction.",
     /* verbosity */
     ": print PPS offsets sorted.",
     ": less verbose.",
-    ": more verbose.",
+    ": more verbose, twice for debug traces.",
     /* show usage */
     ": display this help.",
     /* END */
@@ -125,12 +121,11 @@ int main(int argc, char *argv[]) {
     bool pps_capture_assert = false;
     long pps_hw_offset_ns = 0L;
     
-    long drift_nb = 96;
-    long off_nb = 8;
+    long nb_drift = 96;
+    long nb_offset = 8;
     bool once = false;
 
     long long drift_max_ppb = 0; // Do not adjust clock freq per default
-    long long drift_min_ppb = 0;
 
     long long offset_min_ns = 0; // -500ms -> always adjust when neg
     long long offset_max_ns = 0; // if > +1ms, coarse offset correction
@@ -151,10 +146,10 @@ int main(int argc, char *argv[]) {
             once = true;
             break;
             case 'N':
-            drift_nb = atol(optarg);
+            nb_drift = atol(optarg);
             break;
             case 'n':
-            off_nb = atol(optarg);
+            nb_offset = atol(optarg);
             break;
             // PPS parameters ////////////////////////////////////////////////
             case 'A':
@@ -172,13 +167,6 @@ int main(int argc, char *argv[]) {
                 drift_max_ppb = atol(optarg);
             } else {
                 drift_max_ppb = 1000*1000;
-            }
-            break;
-            case 'd':
-            if (optarg != NULL) {
-                drift_min_ppb = atol(optarg);
-            } else {
-                drift_min_ppb = 50;
             }
             break;
             // Offset parameters //////////////////////////////////////////////
@@ -229,13 +217,12 @@ int main(int argc, char *argv[]) {
     struct ppsd_t * ppsd = ppsd_open(pps_path,
                                      pps_capture_assert,
                                      pps_hw_offset_ns,
-                                     drift_nb,
-                                     off_nb);
+                                     nb_drift,
+                                     nb_offset);
     if (ppsd == NULL) exit (EXIT_FAILURE);
     
     do {
         int ret = ppsd_run (ppsd, 
-                            drift_min_ppb,
                             drift_max_ppb,
                             offset_min_ns,
                             offset_max_ns);
