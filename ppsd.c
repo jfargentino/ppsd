@@ -325,10 +325,12 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
     }
     long long offset_ns = estimate_get(&ppsd->est, NULL);
     long long stddev_ns = ppsd->est.stddev_ns;
+    long long K = 2ll;
     ass(stddev_ns >= 0);
-    if ( (offset_ns > -stddev_ns) && (offset_ns < +stddev_ns) ) {
-        fcmt(ppsdout, "Offset |%+lldns| < std dev %lldns, no offset adj.\n",
-             offset_ns, stddev_ns);
+    if ( (offset_ns > -stddev_ns/K) && (offset_ns < +stddev_ns/K) ) {
+        fcmt(ppsdout,
+             "Offset |%+lldns| < std dev/%lld = %lldns, no offset adj.\n",
+             offset_ns, K, stddev_ns/K);
         return 0;
     }
     if ( (offset_ns < -500*1000*1000) || (offset_ns > +500*1000*1000) ) {
@@ -401,16 +403,20 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
         }
         ass(complement_ns >= 0);
         ass(complement_ns < smooth_min_ppb);
-        if (complement_ns > stddev_ns) {
+        if (complement_ns > stddev_ns / K) {
             complement_ns = (offset_ns > 0) ? +complement_ns : -complement_ns;
             fcmt(ppsdout,
-                 "Adjusting clk by %+ldppb during 1s for %+lldns offset\n",
+                 "Adjusting freq by %+ldppb during 1s for %+lldns offset\n",
                  -complement_ns, offset_ns);
             ret = adjtimex_adj_freq(-complement_ns);
             ppsd->cum_off_ns += complement_ns;
             slogdbg("cumulative offset %+lldns\n", ppsd->cum_off_ns);
             ppsd_update(ppsd, 0.0l, 0.0l, options);
             ret = adjtimex_adj_freq(+complement_ns);
+        } else {
+            fcmt(ppsdout,
+                 "Complement %ldns < std dev/%lld = %ldns\n",
+                 complement_ns, K, stddev_ns / K);
         }
     }
 

@@ -126,9 +126,8 @@ int main(int argc, char *argv[]) {
     bool once = false;
 
     long long drift_max_ppb = 0; // Do not adjust clock freq per default
-
-    long long offset_min_ns = 0; // -500ms -> always adjust when neg
-    long long offset_max_ns = 0; // if > +1ms, coarse offset correction
+    long long offset_min_ns = +500*1000*1000;
+    long long offset_max_ns = -500*1000*1000;
     
     unsigned int stat_options = PPS_STATS_PRINT
                                    | PPS_STATS_PRINT_ABS_TREF
