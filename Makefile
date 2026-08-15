@@ -14,7 +14,7 @@ else
 endif
 
 # Build targets ###############################################################
-TARGETS=ppsd timeref adjtimex pps_stats
+TARGETS=ppsd timeref adjtimex pps_stats kalman
 TESTS=timespec
 
 #all: $(TARGETS) check
@@ -22,6 +22,7 @@ all: $(TARGETS) $(TESTS)
 
 # Sources files ###############################################################
 SRCS+=adjtimex_helper.c
+SRCS+=kalman.c
 SRCS+=pps_helper.c
 SRCS+=pps_stats.c
 SRCS+=ppsd.c
@@ -42,6 +43,9 @@ version.h: mk_version.sh $(SRCS) $(HDRS)
 
 ppsd: $(OBJS) build/ppsd_main.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ $(LDFLAGS) -lgps -o $@
+
+kalman: kalman.c build/pps_helper.o build/timespec_helper.o
+	$(CC) $(CFLAGS) -DKALMAN_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -o $@
 
 timespec: timespec_helper.c
 	$(CC) $(CFLAGS) -DTIMESPEC_HELPER_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -o $@
