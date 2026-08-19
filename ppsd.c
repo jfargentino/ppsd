@@ -467,11 +467,11 @@ int ppsd_run(struct ppsd_t * ppsd,
                              ppsd_timeref(ppsd),
                              ppsd->off_stats,
                              0);
-		if (adjtimex_get_freq() == 0) {
+                if (adjtimex_get_freq() == 0) {
                     slogout("%sNo frequency adjustment yet, do one.\n",
                             SLOG_CMT_STR);
                     ppsd_adj_drift_ppb(ppsd, max_drift_ppb);
-		}
+                }
                 // correct offset and increment cumulator for drift eval
                 // FIXME PPS update done for offset correction should count
                 ppsd_adj_offset_ns(ppsd, min_offset_ns, max_offset_ns, options);
