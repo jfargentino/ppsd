@@ -40,11 +40,7 @@ static void estimate_set (struct estimate_t * est,
 }
 
 static long long estimate_get (struct estimate_t const * est,
-                               struct timespec const * ts) {
-    if (NULL == ts) {
-        return est->offset_ns;
-    }
-    long double ns = timespec_diff_ns(ts, &est->ts);
+                               long double ns) {
     long long s = roundl(ns / 1e9l);
     return est->offset_ns + s*est->drift_ppb;
 }
@@ -323,7 +319,7 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
         // BYPASS
         return 0;
     }
-    long long offset_ns = estimate_get(&ppsd->est, NULL);
+    long long offset_ns = estimate_get(&ppsd->est, 1e9);
     long long stddev_ns = ppsd->est.stddev_ns;
     long long K = 2ll;
     ass(stddev_ns >= 0);

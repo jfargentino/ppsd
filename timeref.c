@@ -369,7 +369,6 @@ int main(int argc, char ** argv) {
                         strerror(errno), errno);
             }
         }
-        //exit (EXIT_SUCCESS);
     }
 
     if (cont) while (off_ns) {
