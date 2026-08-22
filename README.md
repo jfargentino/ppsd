@@ -8,7 +8,9 @@ ppsd is a PPS Daemon: do statistics on a PPS device to adjust for clock drift an
 
 A propperly configured PPS device.
 
-GPSD for "timeref"
+GPSD for "timeref" (`apt install libgps-dev`)
+
+`git clone https://github.com/jfargentino/ppsd.git`
 
 Build with "make" and a decent C compiler, only "math.h" needed.
 
@@ -18,54 +20,106 @@ Build with "make" and a decent C compiler, only "math.h" needed.
 
 All applications provide a quick "-h" help.
 
-***One master only***, stop NTP, chrony, timesyncd and the like.
+***One master only***, If setting clock, stop NTP, chrony, timesyncd and the like.
 
-### `timeref -s`
-to roughly set the system time from GPSD.
+**TODO** systemd start scripts.
 
-### `ppsd -D 1000000 -o -500000000 -O +500000000`
-to adjust for drift and offset.
+### timeref
 
-***TODO*** `ppsd` need root even without adjusting the clock, probably because
+`timeref -s` to roughly set the system time from GPSD.
+
+### ppsd
+
+`ppsd -N 64 -n 8` Evaluates drift every 64 PPS and offset every 8 PPS.
+
+`ppsd -D 1000000 -o -500000000 -O +500000000` to adjust for drift and offset.
+
+**TODO** `ppsd` need root even without adjusting the clock, probably because
 of PPS opening/setting, chowning "/dev/pps0" do "dialout" group do nothing...
 
-### `adjtimex`
-is "adjtimex (2)" terminal interface using ppb and ns for units.
+### adjtimex
 
+`adjtimex` is "adjtimex (2)" terminal interface using ppb and ns for units.
+
+`adjtimex -f 20000` to adjust the clock frequency by 20000ppb (20ppm).
+
+### tools
+
+`ppsd_plot.sh`, `ppsd_hist.sh` and a couple of OCTAVE/MATLAB scripts.
+
+**TODO** update ppsd.sh !
 
 ---
 
 ## How to on RPI
 
-Setting the UART (PIN8 GPIO14 and PIN10 GPIO15):
-add "enable_uart=1" in "/boot/firmware/config.txt"
-then run raspi-config to disable login on UART
-the UART is ttyAMA0
+Adding `nohz=off` to "/boot/firmware/cmdline.txt" make no arm... on my RPI5,
+std dev goes from 700ns down to 300ns !
+
+**WHY** dtoverlay=disable-bt
+ 
+**TODO** measuring temperature
+
+**TODO** running on 1 CPU (IRQ and app ?) to avoid ISR cache flush ?
+
+**TODO** dtoverlay=i2c-rtc,ds3231
+
+
+### PPS
 
 Setting PPS input (PIN7 GPIO4):
-add "dtoverlay=pps-gpio,gpiopin=4" in "/boot/firmware/config.txt"
-add "pps-gpio" to "/etc/modules" ?
+add `dtoverlay=pps-gpio,gpiopin=4` in "/boot/firmware/config.txt"
 
-apt install gpsd gpsd-clients gpsd-tools libgps-dev
+Add `pps-gpio` to "/etc/modules" ?
 
-apt install pps-tools
+Optional: `apt install pps-tools`
 
-apt install chrony ?
 
+### GPS
+
+Setting UART (PIN8 GPIO14 and PIN10 GPIO15):
+add `enable_uart=1` in "/boot/firmware/config.txt"
+
+Then run raspi-config to disable login on UART, UART device is ttyAMA0.
+
+`apt install gpsd gpsd-clients gpsd-tools libgps-dev`
+
+Edit "/etc/default/gpsd" to add `DEVICES="/dev/ttyAMA0 /dev/pps0"` and
+`GPSD_OPTIONS="-n"`.
+
+
+### CHRONY
+
+`apt install chrony`
+
+For chrony to use GPS+PPS as reference, add in "/etc/chrony/chrony.conf":
+
+```
+refclock SHM 0 refid NMEA offset 0.000 precision 1e-3 poll 0 filter 3
+refclock PPS /dev/pps0 refid PPS lock NMEA offset 0.0 poll 3 trust
+```
+
+To use chrony as a NTP server _only_, remove all refclocks/sources and add:
+```
+local stratum 10
+allow 192.168.1.0/24
+```
 
 ---
 
-
-
 ## Links
 
-[todo](https://github.com/parlaynu/pi5-timeserver-gps-pps)
-
-[todo](https://github.com/Kreeblah/DietPiTimeServer)
-
-[todo](https://github.com/tiagofreire-pt/rpi_uputronics_stratum1_chrony)
-
-<https://austinsnerdythings.com/2025/02/14/revisiting-microsecond-accurate-ntp-for-raspberry-pi-with-gps-pps-in-2025/>
+[here](https://github.com/jfargentino/ppsd)
 
 [Allan tools](https://github.com/aewallin/allantools)
+
+A [RPi NTP server repo](https://github.com/parlaynu/pi5-timeserver-gps-pps)
+
+Another [RPi NTP server repo](https://github.com/Kreeblah/DietPiTimeServer)
+
+Yet another [RPi NTP server repo](https://github.com/tiagofreire-pt/rpi_uputronics_stratum1_chrony)
+
+[In this link](https://austinsnerdythings.com/2025/11/24/worlds-most-stable-raspberry-pi-81-better-ntp-with-thermal-management/) there is temperature compensation.
+
+
 
