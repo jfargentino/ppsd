@@ -53,7 +53,6 @@ static struct option long_opts[] = {
     {"offset-max", optional_argument, NULL, 'O'},
 
     /* verbosity */
-    {"sorted", no_argument, NULL, 's'},
     {"quiet", no_argument, NULL, 'q'},
     {"verbose", no_argument, NULL, 'v'},
     /* show usage */
@@ -76,7 +75,6 @@ static char const * opts_usage[] = {
     "OFFSET_MIN : under this value (in ns), no offset correction.",
     "OFFSET_MAX : over this value (in ns), no offset correction.",
     /* verbosity */
-    ": print PPS offsets sorted.",
     ": less verbose.",
     ": more verbose, twice for debug traces.",
     /* show usage */
@@ -121,7 +119,7 @@ int main(int argc, char *argv[]) {
     bool pps_capture_assert = false;
     long pps_hw_offset_ns = 0L;
     
-    long nb_drift = 96;
+    long nb_drift = 64;
     long nb_offset = 8;
     bool once = false;
 
@@ -184,9 +182,6 @@ int main(int argc, char *argv[]) {
             }
             break;
             // Verbosity //////////////////////////////////////////////////////
-            case 's':
-            stat_options |= PPS_STATS_PRINT_SORTED | PPS_STATS_PRINT_INFO;
-            break;
             case 'q':
             ppsdout = NULL;
             break;

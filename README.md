@@ -6,13 +6,16 @@ ppsd is a PPS Daemon: do statistics on a PPS device to adjust for clock drift an
 
 ## Needs
 
-A propperly configured PPS device.
+A propperly configured PPS device and "/usr/include/sys/timepps.h"
+(`apt install pps-tools`).
 
-GPSD for "timeref" (`apt install libgps-dev`)
+GPSD running for "timeref" and its dev package installed (`apt install libgps-dev`).
 
 `git clone https://github.com/jfargentino/ppsd.git`
 
-Build with "make" and a decent C compiler, only "math.h" needed.
+Build with "make" and a decent C compiler.
+
+Optional: "ntpdate" to check for +/-1s off (`apt install ntpsec-ntpdate`).
 
 ---
 
@@ -23,6 +26,10 @@ All applications provide a quick "-h" help.
 ***One master only***, If setting clock, stop NTP, chrony, timesyncd and the like.
 
 **TODO** systemd start scripts.
+
+**TODO** not really good when high std dev (100us when using USB adapter), looks
+like drift is really high when offset calculated over 8s...
+
 
 ### timeref
 
