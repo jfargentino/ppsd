@@ -85,6 +85,7 @@ fi
 PPS_FILE=`date +%s`".pps"
 stdbuf -oL $PPSD $PPSD_PARAMS | tee -a $PPS_FILE
 
+# TODO plot every 1h or so...
 if [ $PLOT_OFFSET -gt 0 ]; then
     $PLOT $PPS_FILE
     $HIST $PPS_FILE

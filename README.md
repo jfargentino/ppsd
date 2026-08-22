@@ -30,6 +30,7 @@ All applications provide a quick "-h" help.
 **TODO** not really good when high std dev (100us when using USB adapter), looks
 like drift is really high when offset calculated over 8s...
 
+**TODO** tests scripts... measuring chrony perf when usin GPS+PPS only to compare...
 
 ### timeref
 
@@ -44,11 +45,11 @@ like drift is really high when offset calculated over 8s...
 **TODO** `ppsd` need root even without adjusting the clock, probably because
 of PPS opening/setting, chowning "/dev/pps0" do "dialout" group do nothing...
 
-### adjtimex
+### jfadjtimex
 
-`adjtimex` is "adjtimex (2)" terminal interface using ppb and ns for units.
+`jfadjtimex` is "adjtimex (2)" terminal interface using ppb and ns for units.
 
-`adjtimex -f 20000` to adjust the clock frequency by 20000ppb (20ppm).
+`jfadjtimex -f 20000` to adjust the clock frequency by 20000ppb (20ppm).
 
 ### tools
 

@@ -1,5 +1,5 @@
 timespec
-adjtimex
+jfadjtimex
 timeref
 pps_stats
 ppsd

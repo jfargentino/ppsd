@@ -14,7 +14,7 @@ else
 endif
 
 # Build targets ###############################################################
-TARGETS=ppsd timeref adjtimex pps_stats kalman
+TARGETS=ppsd timeref jfadjtimex pps_stats kalman
 TESTS=timespec
 
 #all: $(TARGETS) check
@@ -56,7 +56,7 @@ pps_stats: pps_stats.c build/timespec_helper.o
 timeref: timeref.c build/adjtimex_helper.o build/timespec_helper.o
 	$(CC) $(CFLAGS) -DTIMEREF_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -lgps -o $@
 
-adjtimex: adjtimex_helper.c build/timespec_helper.o
+jfadjtimex: adjtimex_helper.c build/timespec_helper.o
 	$(CC) $(CFLAGS) -DADJTIMEX_HELPER_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -o $@
 
 hardpps: hardpps.o build/adjtimex_helper.o build/pps_helper.o
