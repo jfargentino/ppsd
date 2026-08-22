@@ -30,7 +30,7 @@ int pps_get_timestamp(struct pps_t const * pps,
  *
  *****************************************************************************/
 int pps_set_clock(struct pps_t const * pps,
-                  struct timespec * pps_timestamp,
+                  struct timespec * timestamp,
                   struct timespec const * timeref);
 
 /*****************************************************************************

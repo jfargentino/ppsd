@@ -26,6 +26,7 @@ struct ppsd_t * ppsd_open(char const * path,
                           unsigned int drift_pps_count,
                           unsigned int offset_pps_count);
 
+// TODO static for cppcheck
 /* 
  * Set the time reference, i.e. the "absolute real" timestamp of the last PPS.
  * If given timeref is NULL, use its last PPS timestamp rounded to plain
@@ -50,6 +51,7 @@ void ppsd_close(struct ppsd_t * ppsd);
  */
 int ppsd_adj_drift_ppb(struct ppsd_t * ppsd, long max_drift_ppb);
 
+// TODO static for cppcheck
 /*
  * Abruptly set the CLK to account the last estimated offset.
  * TODO Temporary adjust the CLK freq to account the last estimated offset.

@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,15 +24,13 @@ static void estimate_set (struct estimate_t * est,
                           unsigned int win) {
     est->ts = *ts;
     long double drift_ppb = pps_stats_drift_ppb(stats, win);
-    long double stddev_ns = 0.0l;
+    long double stddev_ns = 0.0L;
     long double mean_ns = pps_stats_mean(stats,
                                          &stddev_ns,
                                          win);
     // Offset estimate is not the mean !
-    if (win <= 0) {
-        win = pps_stats_length(stats);
-    }
-    mean_ns += (win/2 + 1) * drift_ppb;
+    long double len = (win == 0u) ? pps_stats_length(stats) : win;
+    mean_ns += ((len/2.0L) + 1.0L) * drift_ppb;
     est->offset_ns = roundl(mean_ns);
     est->drift_ppb = roundl(drift_ppb);
     est->stddev_ns = roundl(stddev_ns);
@@ -41,8 +38,8 @@ static void estimate_set (struct estimate_t * est,
 
 static long long estimate_get (struct estimate_t const * est,
                                long double ns) {
-    long long s = roundl(ns / 1e9l);
-    return est->offset_ns + s*est->drift_ppb;
+    long long s = roundl(ns / 1e9L);
+    return est->offset_ns + (s*est->drift_ppb);
 }
 
 /*****************************************************************************
@@ -115,7 +112,7 @@ static unsigned long ppsd_stats_init(struct ppsd_t * ppsd,
     ass(ppsd->off_stats == NULL);
     ppsd->count = 0UL;
     ppsd->outliers = 0UL;
-    ppsd_set_timeref(ppsd, NULL);
+    (void)ppsd_set_timeref(ppsd, NULL);
     if (drift_pps_nb > 0u) {
         ppsd->drift_stats = pps_stats_ctor(drift_pps_nb);
         pps_stats_reset(ppsd->drift_stats, true);
@@ -136,12 +133,12 @@ struct ppsd_t * ppsd_open(char const * path,
     if (NULL == ppsd) {
         return NULL;
     }
-    adjtimex_snapshot(&ppsd->tx);
+    (void)adjtimex_snapshot(&ppsd->tx);
     ppsd->cum_drift_ppb = adjtimex_get_freq();
     fcmt(ppsderr, "%s\n", "ADJTIMEX at start:");
     timex_flog(ppsderr, &ppsd->tx);
     // TODO check return
-    ppsd_stats_init(ppsd, drift_pps_count, offset_pps_count);
+    (void)ppsd_stats_init(ppsd, drift_pps_count, offset_pps_count);
     return ppsd;
 }
 
@@ -159,7 +156,7 @@ static int ppsd_stats_release(struct ppsd_t * ppsd) {
 }
 
 void ppsd_close(struct ppsd_t * ppsd) {
-    ppsd_stats_release(ppsd);
+    (void)ppsd_stats_release(ppsd);
     pps_close(ppsd->_);
     _PPSD_._ = NULL;
 }
@@ -167,8 +164,8 @@ void ppsd_close(struct ppsd_t * ppsd) {
 /*****************************************************************************
  *
  *****************************************************************************/
-time_t ppsd_set_timeref(struct ppsd_t * ppsd,
-                        struct timespec const * timeref) {
+/*static*/ time_t ppsd_set_timeref(struct ppsd_t * ppsd,
+                                   struct timespec const * timeref) {
     if (timeref == NULL) {
         // round next PPS timestamp to use as reference
         ppsd->timeref.tv_sec = 0;
@@ -206,7 +203,7 @@ int ppsd_update(struct ppsd_t * ppsd,
         ppsd->timeref.tv_sec = ppsd->timestamp.tv_sec;
         slogdbg("timeref reset %lds\n",  ppsd->timeref.tv_sec);
         ppsd->timeref.tv_nsec = 0;
-        if (ppsd->timestamp.tv_nsec >= ns_per_s / 2) {
+        if ( ppsd->timestamp.tv_nsec >= (ns_per_s/2) ) {
             ppsd->timeref.tv_sec ++;
         }
     } else {
@@ -217,7 +214,7 @@ int ppsd_update(struct ppsd_t * ppsd,
     
     // outlier filtering
     long long pps_off_ns = ppsd_offset_ns(ppsd);
-    long double d2p = fabsl(pps_off_ns - predict_ns);
+    long double d2p = fabsl(((long double)pps_off_ns) - predict_ns);
     bool outlier = (dist2predict_max_ns > 0.0L) && (d2p > dist2predict_max_ns);
 
     // stats update and print
@@ -282,7 +279,7 @@ int ppsd_adj_drift_ppb(struct ppsd_t * ppsd, long max_drift_ppb) {
     int ret = adjtimex_adj_freq(-drift_ppb);
     // TODO check cumulative drift == adjtimex correction
     ppsd->cum_drift_ppb += drift_ppb;
-    adjtimex_snapshot(&ppsd->tx);
+    (void)adjtimex_snapshot(&ppsd->tx);
     fcmt(ppsdout, "Adjusting freq %+ldppb by %+lldppb = %+ldppb return %d\n",
          freq_ppb, -drift_ppb, adjtimex_get_freq(), ret);
     return ret;
@@ -311,25 +308,25 @@ static long ppsd_tick_us(long * smooth_min_ppb) {
     return tick_us;
 }
 
-int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
-                       long min_offset_ns,
-                       long max_offset_ns,
-                       unsigned int options) {
+/*static*/ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
+                                  long min_offset_ns,
+                                  long max_offset_ns,
+                                  unsigned int options) {
     if (min_offset_ns > max_offset_ns) {
         // BYPASS
         return 0;
     }
-    long long offset_ns = estimate_get(&ppsd->est, 1e9);
+    long long offset_ns = estimate_get(&ppsd->est, 1e9L);
     long long stddev_ns = ppsd->est.stddev_ns;
-    long long K = 2ll;
+    long long K = 2LL;
     ass(stddev_ns >= 0);
-    if ( (offset_ns > -stddev_ns/K) && (offset_ns < +stddev_ns/K) ) {
+    if ( (offset_ns > (-stddev_ns/K)) && (offset_ns < (+stddev_ns/K)) ) {
         fcmt(ppsdout,
              "Offset |%+lldns| < std dev/%lld = %lldns, no offset adj.\n",
              offset_ns, K, stddev_ns/K);
         return 0;
     }
-    if ( (offset_ns < -500*1000*1000) || (offset_ns > +500*1000*1000) ) {
+    if ( (offset_ns < (-500*1000*1000)) || (offset_ns > (+500*1000*1000)) ) {
         fcmt(ppsdout, "Offset |%+lldns| > 500ms, no offset adj.\n",
              offset_ns);
         return 0;
@@ -374,7 +371,8 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
             while (s > 0) {
                 ppsd->cum_off_ns += smooth_max_ppb;
                 slogdbg("cumulative offset %+lldns\n", ppsd->cum_off_ns);
-                ppsd_update(ppsd, 0.0l, 0.0l, options);
+                // TODO check return !!!
+                (void)ppsd_update(ppsd, 0.0L, 0.0L, options);
                 s --;
             }
             ret = adjtimex_adj_tick(+tickadj_max_us);
@@ -386,20 +384,20 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
             complement_ns %= smooth_min_ppb;
             tickadj_us = (offset_ns > 0) ? +tickadj_us : -tickadj_us;
             fcmt(ppsdout,
-        "Adjusting tick %ld%+ldus (%+ldppb) during 1s for %+lldns offset\n",
+        "Adjusting tick %ld%+ldus (%+ldppb) during 1s (offset %+lldns)\n",
                  tick_us,
                  -tickadj_us,
                  -tickadj_us*smooth_min_ppb,
                  offset_ns);
             ret = adjtimex_adj_tick(-tickadj_us);
             ppsd->cum_off_ns += tickadj_us * smooth_min_ppb;
-            slogdbg("cumulative offset %+lldns\n", ppsd->cum_off_ns);
-            ppsd_update(ppsd, 0.0l, 0.0l, options);
+            slogdbg("Cumulative offset %+lldns\n", ppsd->cum_off_ns);
+            (void)ppsd_update(ppsd, 0.0L, 0.0L, options);
             ret = adjtimex_adj_tick(+tickadj_us);
         }
         ass(complement_ns >= 0);
         ass(complement_ns < smooth_min_ppb);
-        if (complement_ns > stddev_ns / K) {
+        if ( complement_ns > (stddev_ns / K) ) {
             complement_ns = (offset_ns > 0) ? +complement_ns : -complement_ns;
             fcmt(ppsdout,
                  "Adjusting freq by %+ldppb during 1s for %+lldns offset\n",
@@ -407,7 +405,7 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
             ret = adjtimex_adj_freq(-complement_ns);
             ppsd->cum_off_ns += complement_ns;
             slogdbg("cumulative offset %+lldns\n", ppsd->cum_off_ns);
-            ppsd_update(ppsd, 0.0l, 0.0l, options);
+            (void)ppsd_update(ppsd, 0.0L, 0.0L, options);
             ret = adjtimex_adj_freq(+complement_ns);
         } else {
             fcmt(ppsdout,
@@ -416,7 +414,7 @@ int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
         }
     }
 
-    adjtimex_snapshot(&ppsd->tx);
+    (void)adjtimex_snapshot(&ppsd->tx);
     
     return ret;
 }
@@ -448,13 +446,13 @@ int ppsd_run(struct ppsd_t * ppsd,
 
     // TODO optional filtering !
     unsigned int pps_cnt = 0u;
-    int ok = ppsd_update(ppsd, 0.0l, 0.0l, options);
+    int ok = ppsd_update(ppsd, 0.0L, 0.0L, options);
     while ( (ok >= 0) && (pps_cnt < pps_nb) ) {
         if (ok > 0) {
             pps_cnt ++;
             // OFFSET //////////////////////////////////////
-            if ( (off_nb > 0) && (pps_cnt % off_nb == 0) ) {
-                slogout("%sOffset statistics on %d/%dPPS\n",
+            if ( (off_nb > 0U) && ((pps_cnt % off_nb) == 0U) ) {
+                slogout("%sOffset statistics on %u/%uPPS\n",
                         SLOG_CMT_STR, off_nb, pps_cnt);
                 pps_stats_header2(ppsdout, ppsd->off_stats, options);
                 slogout("%s", SLOG_CMT_STR);
@@ -466,25 +464,28 @@ int ppsd_run(struct ppsd_t * ppsd,
                 if ( (adjtimex_get_freq() == 0) && (max_drift_ppb > 0) ) {
                     slogout("%sNo frequency adjustment yet, do one.\n",
                             SLOG_CMT_STR);
-                    ppsd_adj_drift_ppb(ppsd, max_drift_ppb);
+                    (void)ppsd_adj_drift_ppb(ppsd, max_drift_ppb);
                 }
                 // correct offset and increment cumulator for drift eval
                 // FIXME PPS update done for offset correction should count
-                ppsd_adj_offset_ns(ppsd, min_offset_ns, max_offset_ns, options);
+                (void)ppsd_adj_offset_ns(ppsd,
+                                         min_offset_ns,
+                                         max_offset_ns,
+                                         options);
                 pps_stats_reset(ppsd->off_stats, true);
             }
             // DRIFT ///////////////////////////////////////
-            if ( (drift_nb > 0) && (pps_cnt % drift_nb == 0) ) {
-                slogout("%sDrift statistics on %d/%dPPS\n",
+            if ( (drift_nb > 0U) && ((pps_cnt % drift_nb) == 0U) ) {
+                slogout("%sDrift statistics on %u/%uPPS\n",
                         SLOG_CMT_STR, drift_nb, pps_cnt);
                 pps_stats_header2(ppsdout, ppsd->drift_stats, options);
                 slogout("%s", SLOG_CMT_STR);
                 pps_stats_fprint(ppsdout, ppsd->drift_stats, options);
-                estimate_set(&ppsd->est,
-                             ppsd_timeref(ppsd),
-                             ppsd->drift_stats,
-                             0);
-                ppsd_adj_drift_ppb(ppsd, max_drift_ppb);
+                (void)estimate_set(&ppsd->est,
+                                   ppsd_timeref(ppsd),
+                                   ppsd->drift_stats,
+                                   0);
+                (void)ppsd_adj_drift_ppb(ppsd, max_drift_ppb);
                 pps_stats_reset(ppsd->drift_stats, true);
                 slogdbg("cumulative offset %+lldns reset\n",
                         ppsd->cum_off_ns);
@@ -495,7 +496,7 @@ int ppsd_run(struct ppsd_t * ppsd,
             // TODO if estimate used to filter ?
         }
 
-        ok = ppsd_update(ppsd, 0.0l, 0.0l, options);
+        ok = ppsd_update(ppsd, 0.0L, 0.0L, options);
     
     }
     

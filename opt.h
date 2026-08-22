@@ -23,9 +23,10 @@ static size_t option2short (struct option const * long_opt, char short_opt[]) {
 static size_t longopts2shortopts(struct option const long_opts[],
                                  char * short_opts) {
     size_t k = 0;
+    char * opt = short_opts;
     while(long_opts[k].name != 0) {
-        size_t n = option2short(&long_opts[k], short_opts);
-        short_opts += n;
+        size_t n = option2short(&long_opts[k], opt);
+        opt += n;
         k ++;
     }
     return k;
@@ -36,8 +37,12 @@ static void print_usage (char const * app_name,
                          struct option const long_opts[],
                          char const * const opts_usage[],
                          char const * long_descr) {
-    if (app_name) (void)printf("%s [OPTIONS] [ARGS]...\n\n", app_name);
-    if (short_descr) (void)printf("%s\n\n", short_descr);
+    if (app_name != NULL) {
+        (void)printf("%s [OPTIONS] [ARGS]...\n\n", app_name);
+    }
+    if (short_descr != NULL) {
+        (void)printf("%s\n\n", short_descr);
+    }
     size_t opt = 0u;
     while (long_opts[opt].name) {
         if (long_opts[opt].flag == NULL) {

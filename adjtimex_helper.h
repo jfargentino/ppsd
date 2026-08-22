@@ -31,7 +31,7 @@ int timex_cmp(struct timex const * old_tx, struct timex const * new_tx);
 void timex_flog(FILE* file, struct timex const * tx);
 void adjtimex_log(FILE* file);
 
-int adjtimex_snapshot(struct timex * tx);
+int adjtimex_snapshot(struct timex * cpy);
 
 /******************************************************************************
  *

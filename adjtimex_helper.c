@@ -52,55 +52,55 @@ static char const * adjtimex_return_str(int ret) {
 }
 
 static char const * adjtimex_modes_str(int modes) {
-    static char modes_str[256] = { '\0' };
+    static char modes_str[256] = { 0 };
     modes_str[0] = '\0';
     // ADJ_OFFSET supplied value is clamped to the range -/+0.5s
-    if (modes & ADJ_OFFSET) { strcat(modes_str, " OFFSET"); }
+    if (modes & ADJ_OFFSET) { (void)strcat(modes_str, " OFFSET"); }
     // ADJ_FREQUENCY supplied value is clamped to the range -/+32768000
-    if (modes & ADJ_FREQUENCY) { strcat(modes_str, " FREQUENCY"); }
+    if (modes & ADJ_FREQUENCY) { (void)strcat(modes_str, " FREQUENCY"); }
     // ADJ_MAXERROR Set maximum time error from buf.maxerror.
-    if (modes & ADJ_MAXERROR) { strcat(modes_str, " MAXERROR"); }
+    if (modes & ADJ_MAXERROR) { (void)strcat(modes_str, " MAXERROR"); }
     // ADJ_ESTERROR Set estimated time error from buf.esterror.
-    if (modes & ADJ_ESTERROR) { strcat(modes_str, " ESTERROR"); }
+    if (modes & ADJ_ESTERROR) { (void)strcat(modes_str, " ESTERROR"); }
     // ADJ_STATUS Set clock status bits from buf.status.
-    if (modes & ADJ_STATUS) { strcat(modes_str, " STATUS"); }
+    if (modes & ADJ_STATUS) { (void)strcat(modes_str, " STATUS"); }
     // ADJ_TIMECONST Set PLL time constant from buf.constant. If the STA_NANO
     // status flag is clear, the kernel adds 4 to this value.
-    if (modes & ADJ_TIMECONST) { strcat(modes_str, " TIMECONST"); }
-    if (modes & ADJ_SETOFFSET) { strcat(modes_str, " SETOFFSET"); }
-    if (modes & ADJ_MICRO) { strcat(modes_str, " MICRO"); }
-    if (modes & ADJ_NANO) { strcat(modes_str, " NANO"); }
+    if (modes & ADJ_TIMECONST) { (void)strcat(modes_str, " TIMECONST"); }
+    if (modes & ADJ_SETOFFSET) { (void)strcat(modes_str, " SETOFFSET"); }
+    if (modes & ADJ_MICRO) { (void)strcat(modes_str, " MICRO"); }
+    if (modes & ADJ_NANO) { (void)strcat(modes_str, " NANO"); }
     // ADJ_TAI Set TAI offset from buf.constant.
-    if (modes & ADJ_TAI) { strcat(modes_str, " TAI"); }
+    if (modes & ADJ_TAI) { (void)strcat(modes_str, " TAI"); }
     // ADJ_TICK Set tick value from buf.tick.
-    if (modes & ADJ_TICK) { strcat(modes_str, " TICK"); }
+    if (modes & ADJ_TICK) { (void)strcat(modes_str, " TICK"); }
     // ADJ_OFFSET_SINGLESHOT Old-fashioned adjtime(3).
     if (modes & ADJ_OFFSET_SINGLESHOT) { 
-        strcat(modes_str, " OFFSET_SINGLESHOT");
+        (void)strcat(modes_str, " OFFSET_SINGLESHOT");
     }
     // ADJ_OFFSET_SS_READ Return (in buf.offset) the remaining amount of time
     // to be adjusted after an earlier ADJ_OFFSET_SINGLESHOT operation.
     if ((modes & ADJ_OFFSET_SS_READ) == ADJ_OFFSET_SS_READ) {
-        strcat(modes_str, " OFFSET_SS_READ");
+        (void)strcat(modes_str, " OFFSET_SS_READ");
     }
     return modes_str;
 }
 
 static char const * adjtimex_status_str(int status) {
-    static char status_str[256] = { '\0' };
+    static char status_str[256] = { 0 };
     status_str[0] = '\0';
     // STA_PLL (rw) Enable phase-locked loop (PLL) updates via ADJ_OFFSET.
-    if (status & STA_PLL) { strcat(status_str, " PLL"); }
+    if (status & STA_PLL) { (void)strcat(status_str, " PLL"); }
     // STA_PPSFREQ (rw) Enable PPS (pulse-per-second) frequency discipline.
-    if (status & STA_PPSFREQ) { strcat(status_str, " PPSFREQ"); }
+    if (status & STA_PPSFREQ) { (void)strcat(status_str, " PPSFREQ"); }
     // STA_PPSTIME (rw) Enable PPS time discipline.
-    if (status & STA_PPSTIME) { strcat(status_str, " PPSTIME"); }
+    if (status & STA_PPSTIME) { (void)strcat(status_str, " PPSTIME"); }
     // STA_FLL (rw) Select frequency-locked loop (FLL) mode.
-    if (status & STA_FLL) { strcat(status_str, " FLL"); }
-    if (status & STA_INS) { strcat(status_str, " INS"); }
-    if (status & STA_DEL) { strcat(status_str, " DEL"); }
+    if (status & STA_FLL) { (void)strcat(status_str, " FLL"); }
+    if (status & STA_INS) { (void)strcat(status_str, " INS"); }
+    if (status & STA_DEL) { (void)strcat(status_str, " DEL"); }
     // STA_UNSYNC (rw) Clock unsynchronized.
-    if (status & STA_UNSYNC) { strcat(status_str, " UNSYNC"); }
+    if (status & STA_UNSYNC) { (void)strcat(status_str, " UNSYNC"); }
     /* STA_FREQHOLD (rw)
               Hold frequency.  Normally adjustments made via ADJ_OFFSET result
               in dampened frequency adjustments also being made.  So a single  
@@ -110,27 +110,27 @@ static char const * adjtimex_status_str(int status) {
               This flag prevents the small frequency adjustment from being made 
               when correcting for an ADJ_OFFSET value.
     */
-    if (status & STA_FREQHOLD) { strcat(status_str, " FREQHOLD"); }
+    if (status & STA_FREQHOLD) { (void)strcat(status_str, " FREQHOLD"); }
     // STA_PPSSIGNAL (ro) A valid PPS signal is present.
-    if (status & STA_PPSSIGNAL) { strcat(status_str, " PPSSIGNAL"); }
+    if (status & STA_PPSSIGNAL) { (void)strcat(status_str, " PPSSIGNAL"); }
     // STA_PPSJITTER (ro) PPS signal jitter exceeded.
-    if (status & STA_PPSJITTER) { strcat(status_str, " PPSJITTER"); }
+    if (status & STA_PPSJITTER) { (void)strcat(status_str, " PPSJITTER"); }
     // STA_PPSWANDER (ro) PPS signal wander exceeded.
-    if (status & STA_PPSWANDER) { strcat(status_str, " PPSWANDER"); }
+    if (status & STA_PPSWANDER) { (void)strcat(status_str, " PPSWANDER"); }
     // STA_PPSERROR (ro) PPS signal calibration error.
-    if (status & STA_PPSERROR) { strcat(status_str, " PPSERROR"); }
+    if (status & STA_PPSERROR) { (void)strcat(status_str, " PPSERROR"); }
     // STA_CLOCKERR (ro) Clock hardware fault.
-    if (status & STA_CLOCKERR) { strcat(status_str, " CLOCKERR"); }
+    if (status & STA_CLOCKERR) { (void)strcat(status_str, " CLOCKERR"); }
     // STA_NANO (ro) 0 = us, 1 = ns. Set ADJ_NANO, cleared ADJ_MICRO.
-    if (status & STA_NANO) { strcat(status_str, " NANO"); }
+    if (status & STA_NANO) { (void)strcat(status_str, " NANO"); }
     // STA_MODE 0 = PLL, 1 = FLL
     if (status & STA_MODE) {
-        strcat(status_str, " MODE_FLL");
+        (void)strcat(status_str, " MODE_FLL");
     } else {
-        strcat(status_str, " MODE_PLL");
+        (void)strcat(status_str, " MODE_PLL");
     }
     // STA_CLK (ro) Clock source (0 = A, 1 = B); currently unused.
-    if (status & STA_CLK) { strcat(status_str, " CLK"); }
+    if (status & STA_CLK) { (void)strcat(status_str, " CLK"); }
     return status_str;
 }
 
@@ -276,7 +276,7 @@ int adjtimex_snapshot(struct timex * cpy) {
         return -1;
     }
     int change = timex_cmp(&_prev_tx, &tx);
-    if (change) {
+    if (change != 0) {
         slogdbg("adjtimex change detected ! (%d)\n", change);
         _prev_tx = tx;
     }
@@ -315,12 +315,12 @@ long adjtimex_get_tick(long * freq_ppb) {
 long adjtimex_get_freq(void) {
     long freq_ppb = 0;
     long tick = adjtimex_get_tick(&freq_ppb);
-    return tick <= 0 ? 0 : freq_ppb;
+    return (tick <= 0) ? 0 : freq_ppb;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 static long _ppb_to_q16 (long ppb) {
-    return roundl( (65536.0l*ppb) / 1e3l );
+    return roundl( (65536.0L*ppb) / 1e3L );
 }
 
 static int _adjtimex_tick_freq(long tick_us, bool adj_tick,
@@ -454,7 +454,7 @@ struct timex_limits_t const * TIMEX_LIMITS(void) {
         }
         adjtimex_stdout = _stdout_back;
         if (tick > 0) {
-            adjtimex_set_tick(tick_back);
+            (void)adjtimex_set_tick(tick_back);
             _LIMITS.tick_max_us = tick;
             slogdbg("Max tick %+ldus.\n", _LIMITS.tick_max_us);
         } else {
@@ -470,7 +470,7 @@ struct timex_limits_t const * TIMEX_LIMITS(void) {
         }
         adjtimex_stdout = _stdout_back;
         if (tick < _LIMITS.tick_max_us) {
-            adjtimex_set_tick(tick_back);
+            (void)adjtimex_set_tick(tick_back);
             _LIMITS.tick_min_us = tick;
             slogdbg("Min tick %+ldus.\n", _LIMITS.tick_min_us);
         } else {
@@ -485,12 +485,12 @@ struct timex_limits_t const * TIMEX_LIMITS(void) {
             freq -= 65536; 
         }
         if (freq > 0) {
-            _adjtimex_set_freq(freq_back);
+            (void)_adjtimex_set_freq(freq_back);
             freq += 65536; 
             while ((freq > 0) && (_adjtimex_set_freq(freq) < 0)) {
                 freq --; 
             }
-            _adjtimex_set_freq(freq_back);
+            (void)_adjtimex_set_freq(freq_back);
             _LIMITS.freq_max_ppb = _q16_to_ppb(freq);
             _LIMITS.freq_min_ppb = -_LIMITS.freq_max_ppb;
             adjtimex_stdout = _stdout_back;
@@ -558,7 +558,7 @@ int main(int argc, char ** argv) {
     slogcmt("%s %s %s\n\n", argv[0], VERSION, COMMIT_DATE);
 
     char short_opts[255] = {0};
-    longopts2shortopts (long_opts, short_opts);
+    (void)longopts2shortopts (long_opts, short_opts);
     
     bool cont = false;
     bool disp = false;
@@ -621,6 +621,7 @@ int main(int argc, char ** argv) {
            default: /* '?' */
            print_usage(argv[0], NULL, long_opts, NULL, NULL);
            exit ((opt == 'h') ? EXIT_SUCCESS : EXIT_FAILURE);
+           break;
         }
     }
 
@@ -631,15 +632,15 @@ int main(int argc, char ** argv) {
     if (set) {
         ret = adjtimex_set_freq(ppb);
     }
-    if (nso) ret = adjtimex_offset(nso);
-    if (nss) ret = adjtimex_singleshot(nss);
-    if (nsS) ret = adjtimex_set_offset(nsS);
-    if (tick_us) ret = adjtimex_set_tick(tick_us);
+    if (nso) {ret = adjtimex_offset(nso);}
+    if (nss) {ret = adjtimex_singleshot(nss);}
+    if (nsS) {ret = adjtimex_set_offset(nsS);}
+    if (tick_us) {ret = adjtimex_set_tick(tick_us);}
     if (ret != INT_MAX) {
-        fprintf(stdout, "adjtimex return \"%s\" (%d)\n",
-                adjtimex_return_str(ret), ret);
+        (void)fprintf(stdout, "adjtimex return \"%s\" (%d)\n",
+                      adjtimex_return_str(ret), ret);
         if (ret < 0) {
-            fprintf(stdout, "\"%s\" (%d)\n", strerror(errno), errno);
+            (void)fprintf(stdout, "\"%s\" (%d)\n", strerror(errno), errno);
             
         }
     }
@@ -654,18 +655,20 @@ int main(int argc, char ** argv) {
         fprintf(stdout, "SS_READ: %+ldns remaining\n", adjtimex_remaining());
     }
     if (limits) {
-        fprintf(stdout, "%9ldus  <= tick <= %9ldus\n",
-                TIMEX_LIMITS()->tick_min_us, TIMEX_LIMITS()->tick_max_us);
-        fprintf(stdout, "%+9ldppb <= freq <= %+9ldppb\n",
-                TIMEX_LIMITS()->freq_min_ppb, TIMEX_LIMITS()->freq_max_ppb);
+        (void)fprintf(stdout, "%9ldus  <= tick <= %9ldus\n",
+                      TIMEX_LIMITS()->tick_min_us,
+                      TIMEX_LIMITS()->tick_max_us);
+        (void)fprintf(stdout, "%+9ldppb <= freq <= %+9ldppb\n",
+                      TIMEX_LIMITS()->freq_min_ppb,
+                      TIMEX_LIMITS()->freq_max_ppb);
     }
-    if (disp) adjtimex_log(stdout);
+    if (disp) { adjtimex_log(stdout); }
     while (cont) {
         struct timex tx = {0};
         if (adjtimex_snapshot(&tx)) {
-            fprintf(stdout, "##################\n");
+            (void)fprintf(stdout, "##################\n");
             timex_flog(stdout, &tx);
-            fprintf(stdout, "##################\n\n");
+            (void)fprintf(stdout, "##################\n\n");
         }
     }
     return 0;

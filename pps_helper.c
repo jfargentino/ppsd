@@ -101,12 +101,11 @@ static int _pps_open(struct pps_t * pps,
     return pps->handle;
 }
 
-static struct pps_t _PPS_ = {
-    .path = "",
-    .dev = -1,
-};
-
 struct pps_t * pps_open(char const * path, bool capture_assert) {
+    static struct pps_t _PPS_ = {
+        .path = "",
+        .dev = -1,
+    };
     if (_pps_open(&_PPS_, path, capture_assert) < 0) {
         return NULL;
     }
@@ -161,7 +160,7 @@ int pps_get_timestamp(struct pps_t const * pps,
                     PPS_TO_ns,
                     strerror(errno));
             errno = 0;
-            return pps_get_timestamp(pps, pps_timestamp);
+            return pps_get_timestamp(pps, pps_timestamp); // FIXME
         }
         slogcmt("PPS timeout (%lldns > %lldns): %s.\n",
                 dt_ns,
@@ -177,7 +176,7 @@ int pps_get_timestamp(struct pps_t const * pps,
 	    if ((dt_ns > 0) && (dt_ns < PPS_SPURIOUS_CHECK_ns)) {
                 slogdbg("previous PPS is %lldns old, spurious ?\n", dt_ns);
                 // FIXME !!!
-                return pps_get_timestamp(pps, pps_timestamp);
+                return pps_get_timestamp(pps, pps_timestamp); // FIXME
 	    }
 	}
 	prev_pps_ts = *pps_timestamp;
@@ -209,7 +208,7 @@ int pps_set_clock(struct pps_t const * pps,
         ok = -1;
     } else {
         // TODO if time diff is less than 100ms or so, use adjtimex !
-        struct timespec timeset = (timeref == NULL) ? *timestamp : *timeref;
+        struct timespec timeset = {0};
         if (timeref != NULL) {
             timeset = *timeref;
         } else {
