@@ -58,7 +58,7 @@ std dev goes from 700ns down to 300ns !
 
 **WHY** dtoverlay=disable-bt
  
-**TODO** measuring temperature
+**TODO** measuring temperature (`vcgencmd measure_temp`)
 
 **TODO** running on 1 CPU (IRQ and app ?) to avoid ISR cache flush ?
 
