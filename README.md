@@ -33,9 +33,13 @@ like drift is really high when offset calculated over 8s...<br>
 
 ### timeref
 
-1st we need to roughly set the time to be within -/+500ms. 
+1st we need to roughly set the time to be within -/+500ms.<br>
+Use `timeref -s` to set the system time from GPSD thanks to NMEA sentence. If
+time difference is less than 500ms, do nothing. Use `timeref -f` to always set
+the time.
 
-Use `timeref -s` to set the system time from GPSD thanks to NMEA sentence.
+**TODO** +/-500ms is not the good threshold, we should compensante for the NMEA
+delay.
 
 Something like `ntpdate` could be used instead, with probably a better precision...
 
@@ -47,7 +51,7 @@ By design, `ppsd` can handle offset between -500ms and +500ms __**ONLY**__ !
 `ppsd -N 64 -n 8` Evaluates drift every 64 PPS and offset every 8 PPS, no
 correction done.
 
-`ppsd -D 1000000 -o -500000000 -O +500000000` to adjust for both drift and offset.
+`ppsd -D 1000000 -o -500000000 -O +500000000` to adjust for both drift and offset:
 
    - `-D 1000000` adjust for measured drift if less than 1000000ppb
    - `-o -500000000 -O +500000000` offset correction by temporary frequency change
@@ -73,11 +77,9 @@ of PPS opening/setting, chowning "/dev/pps0" do "dialout" group do nothing...
 
 ### jfadjtimex
 
-`jfadjtimex` is "adjtimex (2)" terminal interface using ppb and ns for units.
-
-`jfadjtimex -f 20000` to adjust the clock frequency by 20000ppb (20ppm).
-
-`jfadjtimex -f 0 -t 10000` to reset the clock frequency and tick to 10ms.
+`jfadjtimex` is "adjtimex (2)" terminal interface using ppb and ns for units.<br>
+`jfadjtimex -f 20000` to adjust the clock frequency by 20000ppb (20ppm).<br>
+`jfadjtimex -f 0 -t 10000` to reset the clock frequency and tick to 10ms.<br>
 
 JF from `jfadjtimex` is for "Just the Function..." and thus avoid any name
 conflict with the well known "adjtimex (8)" application.
@@ -97,14 +99,18 @@ conflict with the well known "adjtimex (8)" application.
 Adding `nohz=off` to "/boot/firmware/cmdline.txt" make no arm... on my RPI5,
 std dev goes from 700ns down to 300ns !
 
+`dtoverlay -h uart2-pi5` -> ttyAMA2 on GPIO 4 and 7.
+`dtoverlay -h uart4-pi5` -> ttyAMA4 on GPIO 12 and 13.
+
 **TODO** dtoverlay=disable-bt<br>
 **TODO** measuring temperature (`vcgencmd measure_temp`)<br>
 **TODO** running on 1 CPU (IRQ and app ?) to avoid ISR cache flush ?<br>
+**TODO** `pinctrl` shows some PWM ?
 
 
 ### PPS
 
-Setting PPS input (PIN7 GPIO4):
+Setting PPS input (PIN7 GPIO4):<br>
 add `dtoverlay=pps-gpio,gpiopin=4` in "/boot/firmware/config.txt"
 
 Add `pps-gpio` to "/etc/modules" ?
@@ -122,7 +128,7 @@ On a PC, `ldattach PPS /dev/ttyXTZ` may be necessary to create the PPS device.
 
 ### GPS
 
-Setting UART (PIN8 GPIO14 and PIN10 GPIO15):
+Setting UART (PIN8 GPIO14 and PIN10 GPIO15):<br>
 add `enable_uart=1` in "/boot/firmware/config.txt"
 
 Then run raspi-config to disable login on UART, UART device is ttyAMA0.
@@ -140,13 +146,13 @@ alternative to U-Blox "U-center" (windows only), `pip install pygpsclient`.
 
 `apt install chrony`
 
-For chrony to use GPS+PPS as reference, add in "/etc/chrony/chrony.conf":
+For chrony to use GPS+PPS as reference, add in "/etc/chrony/chrony.conf":<br>
 ```
 refclock SHM 0 refid NMEA offset 0.000 precision 1e-3 poll 0 filter 3
 refclock PPS /dev/pps0 refid PPS lock NMEA offset 0.0 poll 3 trust
 ```
 
-To use chrony as a NTP server _only_, remove all refclocks/sources and add:
+To use chrony as a NTP server _only_, remove all refclocks/sources and add:<br>
 ```
 local stratum 10
 allow 192.168.1.0/24
@@ -164,6 +170,20 @@ More info [here](https://github.com/rgl/rtc-i2c-ds3231-rpi) or
 [there](https://trevilly.com/ajout-dun-module-rtc-au-raspberry-pi/)...
 
 `apt install util-linux-extra` to install "hwclock".
+
+`dmesg|grep rtc` shows 2 rtc:
+
+   - rpi-rtc soc@107c000000:rpi_rtc: registered as rtc0
+   - rtc-ds1307 1-0068: registered as rtc1
+
+I guess it's "/dev/rtc1"...
+
+`hwclock --rtc=/dev/rtc1 --systohc --update-drift -v`<br>
+`hwclock --verbose -f /dev/rtc1`<br>
+
+see "/etc/adjtime"
+
+`timedatectl` use /dev/rtc -> change to the link accordingly or use an "udev" rule.
 
 
 ### PTP
@@ -183,3 +203,4 @@ A [RPi PTP server repo](https://github.com/parlaynu/pi5-timeserver-gps-pps)<br>
 A [RPi NTP server repo](https://github.com/Kreeblah/DietPiTimeServer)<br>
 Yet another [RPi NTP server repo](https://github.com/tiagofreire-pt/rpi_uputronics_stratum1_chrony)<br>
 [In this link](https://austinsnerdythings.com/2025/11/24/worlds-most-stable-raspberry-pi-81-better-ntp-with-thermal-management/) there is temperature compensation.<br>
+[invaluable ressources for DIY GPSDO](https://www.paulvdiyblogs.net/2023/01/a-high-resolution-reciprocal-counter.html)<br>

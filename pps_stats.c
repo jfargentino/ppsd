@@ -661,8 +661,7 @@ static void pps_stats_hdr1(FILE * file,
          SLOG_CMT_STR,
          (options & PPS_STATS_PRINT_ABS_TREF) ? "REF (unix)" : "REF (s)");
     flog(file, "%s, ",
-         (options & PPS_STATS_PRINT_ABS_TOFF)
-                ? "PPS (unix)" : "PPS offset (ns)");
+         (options & PPS_STATS_PRINT_ABS_TOFF) ? "PPS (unix)" : "offset (ns)");
 }
 
 static void pps_stats_hdr2(FILE * file,
@@ -923,7 +922,6 @@ static int _do_one(FILE * in, FILE * out, unsigned int options,
 #include "version.h"
 
 int main (int argc, char ** argv) {
-    
     slogcmt("%s %s %s\n\n", argv[0], VERSION, COMMIT_DATE);
 
     unsigned int options = PPS_STATS_PRINT;
@@ -932,7 +930,7 @@ int main (int argc, char ** argv) {
     bool reset = false;
 
     char short_opts[255] = {0};
-    longopts2shortopts (long_opts, short_opts);
+    longopts2shortopts(long_opts, short_opts);
     int opt;
 
     pps_stats_out = stdout;
@@ -984,21 +982,21 @@ int main (int argc, char ** argv) {
             case 'h':
             default:
             print_usage(argv[0], NULL, long_opts, NULL, NULL);
-            exit ((opt == 'h') ? EXIT_SUCCESS : EXIT_FAILURE);
+            exit( (opt == 'h') ? EXIT_SUCCESS : EXIT_FAILURE );
         }
     }
-    
+
     struct pps_stats_t * stats = pps_stats_ctor(count);
     pps_stats_windowed(stats, window_length);
-    
+ 
     if (optind < argc) {
         int line_nb = 0;
         for (int k = optind; k < argc; k++) {
-            FILE * pps_file = fopen (argv[k], "rt");
+            FILE * pps_file = fopen(argv[k], "rt");
             if (pps_file == NULL) {
                 flog(STDERR, "File \"%s\" opening error \"%s\" (%d).\n",
                      argv[k], strerror(errno), errno);
-                exit (EXIT_FAILURE);
+                exit(EXIT_FAILURE);
             }
             line_nb += _do_one(pps_file, STDOUT, options, stats);
             fclose(pps_file);
@@ -1013,9 +1011,9 @@ int main (int argc, char ** argv) {
     }
 
     pps_stats_dtor(stats);
-    
-    exit (EXIT_SUCCESS);
+
+    exit(EXIT_SUCCESS);
 }
 
-#endif // PPS_STATS_MAIN
+#endif  // PPS_STATS_MAIN
 

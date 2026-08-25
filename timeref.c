@@ -292,6 +292,7 @@ static struct option long_opts[] = {
     {"pps-offset", required_argument, NULL, 'O'}, */
     /* Application parameters */
     {"set-clock", no_argument, NULL, 's'},
+    {"force-clock", no_argument, NULL, 'f'},
     {"max-offset", required_argument, NULL, 'o'},
     {"continuous", no_argument, NULL, 'C'},
     {"verbose", no_argument, NULL, 'v'},
@@ -310,6 +311,7 @@ int main(int argc, char ** argv) {
     char const * gpsd_addr = "localhost";
     char const * gpsd_port = "2947";
     bool set_clock = false;
+    bool force_clock = false;
     bool cont = false;
     long long max_offset_ns = +500000000;
 
@@ -327,6 +329,10 @@ int main(int argc, char ** argv) {
             break;
             case 's':
             set_clock = true;
+            break;
+            case 'f':
+            set_clock = true;
+            force_clock = true;
             break;
             case 'o':
             max_offset_ns = atol(optarg);
@@ -362,7 +368,7 @@ int main(int argc, char ** argv) {
                 fprintf(stdout, "clock_settime return \"%s\" (%d)\n",
                         strerror(errno), errno);
             }
-        } else {
+        } else if (force_clock) {
             fprintf(stdout, "Adjusting time by %+lldns\n", -off_ns);
             if (adjtimex_set_offset(-off_ns) < 0) {
                 fprintf(stdout, "adjtimex(SET_OFFSET) return \"%s\" (%d)\n",

@@ -1,11 +1,11 @@
 #include "pps_helper.h"
-#include "timespec_helper.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <sys/timepps.h>
 #include <time.h>
+#include "timespec_helper.h"
 
 FILE* pps_stdout = NULL;
 FILE* pps_stderr = NULL;
@@ -54,7 +54,7 @@ static int _pps_open(struct pps_t * pps,
     pps->path = path;
     if (time_pps_create(pps->dev, &pps->handle) < 0) {
         slogout("%s\" is not a PPS, %s\n", pps->path, strerror(errno));
-        close (pps->dev);
+        close(pps->dev);
         return -1;
     }
 
@@ -129,9 +129,7 @@ struct pps_t * pps_open(char const * path, bool capture_assert) {
 
 int pps_get_timestamp(struct pps_t const * pps,
                       struct timespec * pps_timestamp) {
-
     static struct timespec prev_pps_ts = { 0 };
-
     struct timespec PPS_TO = {
         .tv_sec = PPS_TIMEOUT_s,
         .tv_nsec = PPS_TIMEOUT_ns,

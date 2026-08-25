@@ -318,7 +318,7 @@ static long ppsd_tick_us(long * smooth_min_ppb) {
     }
     long long offset_ns = estimate_get(&ppsd->est, 1e9L);
     long long stddev_ns = ppsd->est.stddev_ns;
-    long long K = 2LL;
+    long long K = 1LL;
     ass(stddev_ns >= 0);
     if ( (offset_ns > (-stddev_ns/K)) && (offset_ns < (+stddev_ns/K)) ) {
         fcmt(ppsdout,
