@@ -18,6 +18,8 @@ struct estimate_t {
     long long stddev_ns;
 };
 
+static long double const estimate_K = 1.0L;
+
 static void estimate_set (struct estimate_t * est,
                           struct timespec const * ts,
                           struct pps_stats_t const * stats,
@@ -30,7 +32,8 @@ static void estimate_set (struct estimate_t * est,
                                          win);
     // Offset estimate is not the mean !
     long double len = (win == 0u) ? pps_stats_length(stats) : win;
-    mean_ns += ((len/2.0L) + 1.0L) * drift_ppb;
+    // But short time drift doesn't look good 
+    mean_ns += ((len/2.0L) + 1.0L) * (drift_ppb * estimate_K);
     est->offset_ns = roundl(mean_ns);
     est->drift_ppb = roundl(drift_ppb);
     est->stddev_ns = roundl(stddev_ns);
@@ -39,7 +42,7 @@ static void estimate_set (struct estimate_t * est,
 static long long estimate_get (struct estimate_t const * est,
                                long double ns) {
     long long s = roundl(ns / 1e9L);
-    return est->offset_ns + (s*est->drift_ppb);
+    return est->offset_ns + (s*est->drift_ppb*estimate_K);
 }
 
 /*****************************************************************************

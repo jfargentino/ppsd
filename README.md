@@ -71,8 +71,10 @@ Using 2 thresholds enable to avoid any jump in the past while jump in the future
 still doable to quickly compensate for very big negative offset.
 
 
+**TODO** std dev divisor to avoid clock setting, from 2 to 1...<br>
+**TODO** trim the short time drift used to transform mean in predicted offset.<br> 
 **TODO** `ppsd` need root even without adjusting the clock, probably because
-of PPS opening/setting, chowning "/dev/pps0" do "dialout" group do nothing...
+of PPS opening/setting, chowning "/dev/pps0" do "dialout" group do nothing...<br>
 
 
 ### jfadjtimex
