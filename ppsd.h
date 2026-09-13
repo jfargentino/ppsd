@@ -19,6 +19,8 @@ struct ppsd_t;
  *      - path: PPS device (eg "/dev/pps0").
  *      - capture_assert: PPS on rising edge if true, falling edge otherwise.
  *      - hw_offset_ns: PPS offset in ns, if any. Can be negative.
+ *      - drift_pps_count: nb of PPS used for drift evaluation.
+ *      - offset_pps_count: nb of PPS used for oofset evaluation.
  */
 struct ppsd_t * ppsd_open(char const * path,
                           bool capture_assert,
@@ -47,20 +49,21 @@ int ppsd_update(struct ppsd_t * ppsd,
 void ppsd_close(struct ppsd_t * ppsd);
 
 /*
- * Adjust the CLK frequency with the last estimated drift.
+ * Adjust the CLK frequency with the last estimated drift if its absolute
+ * value is less than max_drift_ppb.
  */
 int ppsd_adj_drift_ppb(struct ppsd_t * ppsd, long max_drift_ppb);
 
-// TODO static for cppcheck
 /*
- * Abruptly set the CLK to account the last estimated offset.
- * TODO Temporary adjust the CLK freq to account the last estimated offset.
+ * Set the CLK to account the last estimated offset. Depending on min_offset_ns,
+ * max_offset_ns and the estimated one, the correction is done abruptly or by
+ * temporary adjusting the CLK freq.
  *
- *   -500ms       0       +500ms
- * ----|======++++|++++======|----
- * ----|----------|----------|----
- * ----|==========|==========|----
- * ----|======++++|++++++++++|----
+ *  -500ms     0      +500ms
+ * ---|=====+++|+++=====|--- min_offset_ns < offset < max_offset_ns: adjust
+ * ---|--------|--------|--- min_offset_ns > max_offset_ns: no setting
+ * ---|========|========|--- min_offset_ns = max_offset_ns: abrupt
+ * ---|=====+++|++++++++|--- min_offset_ns < offset < 500ms: adjust
  */
 int ppsd_adj_offset_ns(struct ppsd_t * ppsd,
                        long min_offset_ns,

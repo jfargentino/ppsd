@@ -72,7 +72,11 @@ still doable to quickly compensate for very big negative offset.
 
 
 **TODO** std dev divisor to avoid clock setting, from 2 to 1...<br>
-**TODO** trim the short time drift used to transform mean in predicted offset.<br> 
+**TODO** trim the short time drift used to transform mean in predicted offset.
+or maybe try 16s for offset, 32s for both ?<br>
+**TODO** Adaptative thresholds, eg if short term drift > X and std dev < Y then
+adjust for drift, if offset correction < X n times in a row, increase nb of s
+used for stats...<br>
 **TODO** `ppsd` need root even without adjusting the clock, probably because
 of PPS opening/setting, chowning "/dev/pps0" do "dialout" group do nothing...<br>
 
@@ -93,6 +97,13 @@ conflict with the well known "adjtimex (8)" application.
 
 **TODO** update ppsd.sh !
 
+---
+
+## How to on a PC
+
++/-100us if using a USB converter.
+
+`ldattach PPS /dev/ttyS0`
 
 ---
 
@@ -101,8 +112,8 @@ conflict with the well known "adjtimex (8)" application.
 Adding `nohz=off` to "/boot/firmware/cmdline.txt" make no arm... on my RPI5,
 std dev goes from 700ns down to 300ns !
 
-`dtoverlay -h uart2-pi5` -> ttyAMA2 on GPIO 4 and 7.
-`dtoverlay -h uart4-pi5` -> ttyAMA4 on GPIO 12 and 13.
+`dtoverlay -h uart2-pi5` -> ttyAMA2 on GPIO 4 and 7.<br>
+`dtoverlay -h uart4-pi5` -> ttyAMA4 on GPIO 12 and 13.<br>
 
 **TODO** dtoverlay=disable-bt<br>
 **TODO** measuring temperature (`vcgencmd measure_temp`)<br>
@@ -125,7 +136,8 @@ and use `ppsd -H` option accordingly (**NOT TESTED**).
 
 On a PC, `ldattach PPS /dev/ttyXTZ` may be necessary to create the PPS device.
 
-**TODO** `setserial /dev/ttyS0 low_latency` ?
+**TODO** `setserial /dev/ttyS0 low_latency` ?<br>
+**TODO TODO TODO** **TRY [__THIS__](https://forums.raspberrypi.com/viewtopic.php?p=2378538&hilit=hardware+counter#p2378621)** (github [repo](https://github.com/by/linux-PPS/tree/pps-rt-v7-clean))
 
 
 ### GPS
@@ -192,17 +204,22 @@ see "/etc/adjtime"
 
 **todo** ptp4l, phc2sys, phc_ctl
 
+LinuxPTP [howto](https://quantum5.ca/2023/01/26/microsecond-accurate-time-synchronization-lan-with-ptp/)<br>
+A RPi PTP server [repo](https://github.com/parlaynu/pi5-timeserver-gps-pps)<br>
 
 ---
 
 ## Links
 
-[here](https://github.com/jfargentino/ppsd)
+This [repo](https://github.com/jfargentino/ppsd)
 
-[Allan tools](https://github.com/aewallin/allantools)
-
-A [RPi PTP server repo](https://github.com/parlaynu/pi5-timeserver-gps-pps)<br>
-A [RPi NTP server repo](https://github.com/Kreeblah/DietPiTimeServer)<br>
-Yet another [RPi NTP server repo](https://github.com/tiagofreire-pt/rpi_uputronics_stratum1_chrony)<br>
-[In this link](https://austinsnerdythings.com/2025/11/24/worlds-most-stable-raspberry-pi-81-better-ntp-with-thermal-management/) there is temperature compensation.<br>
 [invaluable ressources for DIY GPSDO](https://www.paulvdiyblogs.net/2023/01/a-high-resolution-reciprocal-counter.html)<br>
+
+Allan [tools](https://github.com/aewallin/allantools)
+
+A BH3SAP alternative [firmware](https://github.com/dankar/gpsdo-fw)<br>
+And its [fork](https://github.com/fredzo/gpsdo-fw)<br>
+
+A RPi NTP server [repo](https://github.com/Kreeblah/DietPiTimeServer)<br>
+Yet another RPi NTP server [repo](https://github.com/tiagofreire-pt/rpi_uputronics_stratum1_chrony)<br>
+In this [link](https://austinsnerdythings.com/2025/11/24/worlds-most-stable-raspberry-pi-81-better-ntp-with-thermal-management/) there is temperature compensation.<br>
