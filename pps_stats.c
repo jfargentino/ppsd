@@ -271,6 +271,8 @@ static void pps_stats_insert(struct pps_stats_t * stats,
         ass(stats->highest == stats->length);
         stats->lowest = k;
         stats->highest = k;
+        slogdbg("1st @%u (%+lldns)\n",
+                k, stats->offset[k].priv.ns);
         stats->offset[k].prev = stats->length;
         stats->offset[k].next = stats->length;
         return;
@@ -536,16 +538,21 @@ long double pps_stats_drift_ppb (struct pps_stats_t const * stats,
 long double pps_stats_median (struct pps_stats_t const * stats) {
     unsigned int len = pps_stats_length(stats);
     if (0u == len) { return 0.0l; }
+    if (2u == len) { return pps_stats_mean(stats, NULL, 0); }
     unsigned int k = len / 2u;
     struct offset_t const * med = pps_stats_highest(stats);
+    //slogdbg("Highest %+lldns @%p\n", med->ns, med);
     while (k > 0) {
         med = pps_stats_lower(stats, med);
+        //slogdbg("Lower[%u] %lldns @%p\n", k, med->ns, med);
         k --;
     }
     if (len % 2) {
+        //slogdbg("%u is odd, median = %lld\n", len, med->ns);
         return med->ns;
     }
     struct offset_t const * med2 = pps_stats_lower(stats, med);
+    //slogdbg("%u is even, %p, median = %lld\n", len, med2, med->ns);
     return (med->ns + med2->ns) / 2.0l;
 }
 
