@@ -72,8 +72,7 @@ build/%.o: %.c slog.h version.h
 
 # Doc #########################################################################
 DATA=data/ppsd-laptop.txt data/chrony-laptop.txt
-FDAT=$(patsubst %.txt, %.off, $(DATA))
-PLOT=$(addsuffix .png, $(FDAT))
+PLOT=$(addsuffix .png, $(patsubst %.txt, %.off, $(DATA)))
 HIST=$(addsuffix .off-hist.png, $(DATA))
 
 data/%.off.png: data/%.txt
@@ -102,6 +101,7 @@ build/cppcheck.log: $(SRCS)
 # Cleaning ####################################################################
 clean:
 	@rm -vf hardpps.o version.h $(OBJS) $(GCNO) *.o *.gcno *.gcda
+	@rm -vf data/*.off
 
 purge: clean
 	@rm -vf $(TARGETS) $(TESTS) $(STAT) build/* *.su *.cppcheck gmon.out
