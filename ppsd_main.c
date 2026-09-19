@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
     
     unsigned int stat_options = PPS_STATS_PRINT
                                    | PPS_STATS_PRINT_ABS_TREF
-                                   //| PPS_STATS_PRINT_MEDIAN FIXME
+                                   | PPS_STATS_PRINT_MEDIAN
                                    | PPS_STATS_PRINT_MEAN
                                    | PPS_STATS_PRINT_DRIFT
                                    | PPS_STATS_PRINT_STDDEV;

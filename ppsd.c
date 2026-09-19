@@ -216,6 +216,7 @@ int ppsd_update(struct ppsd_t * ppsd,
     timespec_norm(&ppsd->timestamp);
     
     // outlier filtering
+    // TODO median filtering
     long long pps_off_ns = ppsd_offset_ns(ppsd);
     long double d2p = fabsl(((long double)pps_off_ns) - predict_ns);
     bool outlier = (dist2predict_max_ns > 0.0L) && (d2p > dist2predict_max_ns);
@@ -432,7 +433,7 @@ int ppsd_run(struct ppsd_t * ppsd,
     
     unsigned int options = PPS_STATS_PRINT
                                    | PPS_STATS_PRINT_ABS_TREF
-                                   //| PPS_STATS_PRINT_MEDIAN FIXME
+                                   | PPS_STATS_PRINT_MEDIAN
                                    | PPS_STATS_PRINT_MEAN
                                    | PPS_STATS_PRINT_DRIFT
                                    | PPS_STATS_PRINT_STDDEV;
@@ -460,6 +461,7 @@ int ppsd_run(struct ppsd_t * ppsd,
                 pps_stats_header2(ppsdout, ppsd->off_stats, options);
                 slogout("%s", SLOG_CMT_STR);
                 pps_stats_fprint(ppsdout, ppsd->off_stats, options);
+                // TODO median filtering
                 estimate_set(&ppsd->est,
                              ppsd_timeref(ppsd),
                              ppsd->off_stats,

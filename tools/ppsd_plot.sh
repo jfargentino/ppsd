@@ -15,13 +15,14 @@ _plot_offset () {
 }
 
 for f in $*; do
-    _filter_data "$f" > "$f"".off"
-    N=`wc -l "$f"".off" | awk -F' ' '{print $1}'`
+    g=`echo $f | sed 's/\..\+$//'`
+    _filter_data "$f" > "$g"".off"
+    N=`wc -l "$g"".off" | awk -F' ' '{print $1}'`
     if [ $N -eq 0 ]; then
-        echo "$f"".off is empty"
-        rm "$f"".off"
+        echo "$g"".off is empty"
+        rm "$g"".off"
     else
-        _plot_offset "$f"".off"
+        _plot_offset "$g"".off"
     fi
 done
 

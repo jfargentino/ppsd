@@ -1,6 +1,6 @@
 #!/bin/bash
 
-STATS=./pps_stats
+STATS=../pps_stats
 WIN=96
 COUNT=1024
 file=$1
