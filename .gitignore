@@ -9,12 +9,16 @@ version.h
 octave-workspace
 cppcheck/*
 build/*
+data/*.off
+data/*.off.png
+data/*.off-hist.png
 *.cppcheck
 *.o
 *.out
 *.su
 *.gcda
 *.gcno
-*.txt
 *.off
 *.png
+*.pps
+adjtimex.*

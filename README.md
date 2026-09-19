@@ -28,7 +28,7 @@ All applications provide a quick "-h" help.
 **TODO** systemd start scripts.<br>
 **TODO** not really good when high std dev (100us when using USB adapter), looks
 like drift is really high when offset calculated over 8s...<br>
-**TODO** tests scripts... measuring chrony perf when usin GPS+PPS only to compare...
+**TODO** tests scripts...
 
 
 ### timeref
@@ -48,6 +48,8 @@ Something like `ntpdate` could be used instead, with probably a better precision
 
 By design, `ppsd` can handle offset between -500ms and +500ms __**ONLY**__ !
 
+ **TODO** Median filter
+
 `ppsd -N 64 -n 8` Evaluates drift every 64 PPS and offset every 8 PPS, no
 correction done.
 
@@ -56,19 +58,30 @@ correction done.
    - `-D 1000000` adjust for measured drift if less than 1000000ppb
    - `-o -500000000 -O +500000000` offset correction by temporary frequency change
 
+#### drift limit, option '-D'
 Setting maximum drift to 0 avoid drift correction (the default behaviour), any
 other value is a security in case something goes wrong so evaluated drift is
-far too big to be honest... My guess use something like twice the clock drift
-should be sufficient.
+far too big to be honest... My guess use something like 1000ppm (1000000ppb) is
+good enough. Or twice the clock drift if you're panaoid.
 
-Offset correction can be done by abrutly setting the clock or temporary changing
-its frequency. For this, 2 thresholds are used: `-o` for the min and `-O` the max.
-Then when measured offset is between the min and the max, `ppsd` temporary
-adjust the clock frequency to compensate its offset. If you want to always
-abruptly set the clock, use the same value for the min and the max. If min > max
-then no offset compensation, this is the default behaviour.
+#### offset limits, options '-o' and '-O'
+Offset correction can be done by abrutly by setting the clock, or smoothly by
+temporary changing the clock frequency. For this, 2 thresholds are used: `-o` for
+the min and `-O` the max offset.
+
+If min > max then no offset compensation, this is the default behaviour.
+
+When estimated offset is between the min and the max, `ppsd` temporary adjust the
+clock frequency to compensate the offset.
+
+If you want to always abruptly set the clock, use the same value for the min and
+the max.
+
 Using 2 thresholds enable to avoid any jump in the past while jump in the future
-still doable to quickly compensate for very big negative offset.
+still doable to quickly compensate for very big negative offset. For example,
+use `-o -1000000 -O +500000000` to slow frequency when offset is greater than
+-1ms, thus abruptly change clock when when clock late by more than 1ms and never
+jump in the past.  
 
 
 **TODO** std dev divisor to avoid clock setting, from 2 to 1...<br>
@@ -78,14 +91,15 @@ or maybe try 16s for offset, 32s for both ?<br>
 adjust for drift, if offset correction < X n times in a row, increase nb of s
 used for stats...<br>
 **TODO** `ppsd` need root even without adjusting the clock, probably because
-of PPS opening/setting, chowning "/dev/pps0" do "dialout" group do nothing...<br>
+of PPS opening/setting, chowning "/dev/pps0" to "dialout" group do nothing...<br>
 
 
 ### jfadjtimex
 
 `jfadjtimex` is "adjtimex (2)" terminal interface using ppb and ns for units.<br>
 `jfadjtimex -f 20000` to adjust the clock frequency by 20000ppb (20ppm).<br>
-`jfadjtimex -f 0 -t 10000` to reset the clock frequency and tick to 10ms.<br>
+`jfadjtimex -f 0 -t 10000` to reset the clock frequency and tick to 10ms (default
+on most platform, run `jfadjtimex` if not sure, line `#CLK tick`).<br>
 
 JF from `jfadjtimex` is for "Just the Function..." and thus avoid any name
 conflict with the well known "adjtimex (8)" application.
@@ -101,9 +115,27 @@ conflict with the well known "adjtimex (8)" application.
 
 ## How to on a PC
 
-+/-100us if using a USB converter.
+`ldattach PPS /dev/ttyS0`<br>
+`setserial /dev/ttyS0 low_latency`
 
-`ldattach PPS /dev/ttyS0`
+Expect +/-100us if using an USB converter. On my laptop xubuntu 24.04 LTS + usb
+conv, ppsd performs roughly as good as chrony using gps+pps, funny thing
+histogram done on ppsd results looks more natural than the chrony ones...
+
+ - chrony run :<br>
+<img src="data/chrony-laptop.off.png" alt="chrony"
+ width="300" height="200">
+<img src="data/chrony-laptop.txt.off-hist.png" alt="chrony hist"
+ width="300" height="200">
+
+ - ppsd in charge :<br>
+<img src="data/ppsd-laptop.off.png" alt="ppsd"
+ width="300" height="200">
+<img src="data/ppsd-laptop.txt.off-hist.png" alt="ppsd hist"
+ width="300" height="200">
+
+ **TODO** Median filter<br>
+ **TODO** Same length runs for both... 
 
 ---
 
@@ -115,7 +147,8 @@ std dev goes from 700ns down to 300ns !
 `dtoverlay -h uart2-pi5` -> ttyAMA2 on GPIO 4 and 7.<br>
 `dtoverlay -h uart4-pi5` -> ttyAMA4 on GPIO 12 and 13.<br>
 
-**TODO** dtoverlay=disable-bt<br>
+`dtoverlay=disable-bt` does not arm, look mandatory on older rpi.<br>
+
 **TODO** measuring temperature (`vcgencmd measure_temp`)<br>
 **TODO** running on 1 CPU (IRQ and app ?) to avoid ISR cache flush ?<br>
 **TODO** `pinctrl` shows some PWM ?

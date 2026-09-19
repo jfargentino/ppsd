@@ -18,7 +18,7 @@ TARGETS=ppsd timeref jfadjtimex pps_stats kalman
 TESTS=timespec
 
 #all: $(TARGETS) check
-all: $(TARGETS) $(TESTS)
+all: version.h $(TARGETS) doc $(TESTS)
 
 # Sources files ###############################################################
 SRCS+=adjtimex_helper.c
@@ -70,6 +70,20 @@ build/%.o: %.c slog.h version.h
 
 #.PHONY: version.h
 
+# Doc #########################################################################
+DATA=data/ppsd-laptop.txt data/chrony-laptop.txt
+FDAT=$(patsubst %.txt, %.off, $(DATA))
+PLOT=$(addsuffix .png, $(FDAT))
+HIST=$(addsuffix .off-hist.png, $(DATA))
+
+data/%.off.png: data/%.txt
+	@./tools/ppsd_plot.sh $^
+
+data/%.txt.off-hist.png: data/%.txt
+	@./tools/ppsd_hist.sh $^
+
+doc: pps_stats README.md $(PLOT) $(HIST)
+
 # static analysis #############################################################
 include mk/cppcheck.mk
 
@@ -91,3 +105,5 @@ clean:
 
 purge: clean
 	@rm -vf $(TARGETS) $(TESTS) $(STAT) build/* *.su *.cppcheck gmon.out
+	@rm -vf $(HIST) $(PLOT)
+
