@@ -18,7 +18,7 @@ TARGETS=ppsd timeref jfadjtimex pps_stats kalman
 TESTS=timespec
 
 #all: $(TARGETS) check
-all: version.h $(TARGETS) doc $(TESTS)
+all: version.h $(TARGETS) $(TESTS)
 
 # Sources files ###############################################################
 SRCS+=adjtimex_helper.c
@@ -73,7 +73,8 @@ build/%.o: %.c slog.h version.h
 # Doc #########################################################################
 DATA=data/ppsd-laptop.txt data/chrony-laptop.txt
 DATA+=data/ppsd-jetson.txt data/ppsd-jetfil.txt
-PLOT=$(addsuffix .png, $(patsubst %.txt, %.off, $(DATA)))
+DOFF=$(patsubst %.txt, %.off, $(DATA))
+PLOT=$(addsuffix .png, $(DOFF))
 HIST=$(addsuffix .off-hist.png, $(DATA))
 
 data/%.off.png: data/%.txt

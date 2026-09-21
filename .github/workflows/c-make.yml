@@ -15,6 +15,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install System Dependencies
       run: sudo apt install libgps-dev pps-tools
+      #run: TODO sudo apt install libgps-dev pps-tools gnuplot
     - name: Make build directory
       run: mkdir build
     - name: make
