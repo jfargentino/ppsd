@@ -71,6 +71,9 @@ build/%.o: %.c slog.h version.h
 #.PHONY: version.h
 
 # Doc #########################################################################
+# TODO need apt install gnuplot sloccount pmccabe
+# FIXME installing gnuplot break github CI ?!?
+# TODO doxyen, complexity...
 DATA=data/ppsd-laptop.txt data/chrony-laptop.txt
 DATA+=data/ppsd-jetson.txt data/ppsd-jetfil.txt
 DOFF=$(patsubst %.txt, %.off, $(DATA))
@@ -83,7 +86,15 @@ data/%.off.png: data/%.txt
 data/%.txt.off-hist.png: data/%.txt
 	@./tools/ppsd_hist.sh $^
 
-doc: pps_stats README.md $(PLOT) $(HIST)
+TOOLS=tools/*.sh tools/*.gplot tools/*.m
+
+ppsd.sloccount: $(SRCS) $(HDRS) *.sh Makefile mk/*.mk README.md $(TOOLS)
+	@sloccount $^ > $@
+
+ppsd.pmccabe: $(SRCS)
+	@pmccabe $^ | sort -h > $@
+
+doc: README.md version.h pps_stats $(PLOT) $(HIST) ppsd.sloccount ppsd.pmccabe
 
 # static analysis #############################################################
 include mk/cppcheck.mk

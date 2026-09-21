@@ -6,6 +6,8 @@ ppsd
 kalman
 mk_version.sh
 version.h
+ppsd.sloccount
+ppsd.pmccabe
 octave-workspace
 cppcheck/*
 build/*
