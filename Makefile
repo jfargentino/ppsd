@@ -107,5 +107,7 @@ clean:
 
 purge: clean
 	@rm -vf $(TARGETS) $(TESTS) $(STAT) build/* *.su *.cppcheck gmon.out
+
+nuke: purge
 	@rm -vf $(HIST) $(PLOT)
 
