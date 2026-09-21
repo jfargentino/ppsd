@@ -1,0 +1,3 @@
+[submodule "tools/PyGPSClient"]
+	path = tools/PyGPSClient
+	url = https://github.com/semuconsulting/PyGPSClient.git

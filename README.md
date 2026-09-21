@@ -139,7 +139,7 @@ histogram done on ppsd results looks more natural than the chrony ones...
 
 ---
 
-## How to on RPI
+## How to on rPI/Jetson
 
 Adding `nohz=off` to "/boot/firmware/cmdline.txt" make no arm... on my RPI5,
 std dev goes from 700ns down to 300ns !
@@ -153,6 +153,13 @@ std dev goes from 700ns down to 300ns !
 **TODO** running on 1 CPU (IRQ and app ?) to avoid ISR cache flush ?<br>
 **TODO** `pinctrl` shows some PWM ?
 
+Here's a run of ppsd on a JETSON NANO:<br>
+<img src="data/ppsd-jetson.off.png" alt="ppsd"
+ width="300" height="200">
+<img src="data/ppsd-jetfil.off.png" alt="ppsd without 6 outliers"
+ width="300" height="200">
+<img src="data/ppsd-jetson.txt.off-hist.png" alt="ppsd hist"
+ width="300" height="200">
 
 ### PPS
 

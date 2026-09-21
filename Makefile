@@ -72,6 +72,7 @@ build/%.o: %.c slog.h version.h
 
 # Doc #########################################################################
 DATA=data/ppsd-laptop.txt data/chrony-laptop.txt
+DATA+=data/ppsd-jetson.txt data/ppsd-jetfil.txt
 PLOT=$(addsuffix .png, $(patsubst %.txt, %.off, $(DATA)))
 HIST=$(addsuffix .off-hist.png, $(DATA))
 
