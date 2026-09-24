@@ -14,8 +14,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Install System Dependencies
-      run: sudo apt install libgps-dev pps-tools cppcheck gnuplot-nox
-      #run: TODO sudo apt install libgps-dev pps-tools gnuplot
+      run: sudo apt install libgps-dev pps-tools cppcheck
+      #run: TODO sudo apt install gnuplot-nox
     - name: Make build directory
       run: mkdir build
     - name: make
