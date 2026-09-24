@@ -20,6 +20,8 @@ TESTS=timespec
 #all: $(TARGETS) check
 all: version.h $(TARGETS) $(TESTS)
 
+full: all check doc build/ppsd.pmccabe build/ppsd.sloccount
+
 # Sources files ###############################################################
 SRCS+=adjtimex_helper.c
 SRCS+=kalman.c
@@ -71,9 +73,9 @@ build/%.o: %.c slog.h version.h
 #.PHONY: version.h
 
 # Doc #########################################################################
-# TODO need apt install gnuplot sloccount pmccabe
+# TODO need apt install gnuplot sloccount
 # FIXME installing gnuplot break github CI ?!?
-# TODO doxyen, complexity...
+# TODO doxyen...
 DATA=data/ppsd-laptop.txt data/chrony-laptop.txt
 DATA+=data/ppsd-jetson.txt data/ppsd-jetfil.txt
 DOFF=$(patsubst %.txt, %.off, $(DATA))
@@ -88,20 +90,22 @@ data/%.txt.off-hist.png: data/%.txt
 
 TOOLS=tools/*.sh tools/*.gplot tools/*.m
 
-ppsd.sloccount: $(SRCS) $(HDRS) *.sh Makefile mk/*.mk README.md $(TOOLS)
+build/ppsd.sloccount: $(SRCS) $(HDRS) *.sh Makefile mk/*.mk README.md $(TOOLS)
 	@sloccount $^ > $@
 
-ppsd.pmccabe: $(SRCS)
-	@pmccabe $^ | sort -h > $@
-
-doc: README.md version.h pps_stats $(PLOT) $(HIST) ppsd.sloccount ppsd.pmccabe
+doc: README.md version.h pps_stats $(PLOT) $(HIST)
 
 # static analysis #############################################################
+# TODO need apt install pmccabe splint
+# TODO splint
 include mk/cppcheck.mk
 
 STAT=$(patsubst %.o, %.misra, $(OBJS))
 
 check: $(STAT) build/cppcheck.log
+
+build/ppsd.pmccabe: $(SRCS)
+	@pmccabe $^ | sort -h > $@
 
 build/%.misra: %.c
 	@echo ">>>>>>>> MISRA analysis on $< <<<<<<<"

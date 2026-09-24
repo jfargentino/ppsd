@@ -4,7 +4,7 @@ ppsd is a PPS Daemon: do statistics on a PPS device to adjust for clock drift an
 
 ---
 
-## Needs
+## 1. Needs
 
 A propperly configured PPS device and "/usr/include/sys/timepps.h".<br>
 It looks like `apt install pps-tools` is necessary step to install "timepps.h".
@@ -14,11 +14,12 @@ GPSD running for "timeref" and its dev package installed (`apt install libgps-de
 `git clone https://github.com/jfargentino/ppsd.git`<br>
 Build with "make" and any decent C compiler.
 
-Optional: "ntpdate" to check for +/-1s off (`apt install ntpsec-ntpdate`).
+Optional: "ntpdate" to check for +/-1s off (`apt install ntpsec-ntpdate`).<br>
+Optional: `make doc` needs `apt install gnuplot pmccabe sloccount cppcheck`
 
 ---
 
-## Run
+## 2. Run
 
 All applications provide a quick "-h" help.
 
@@ -31,7 +32,7 @@ like drift is really high when offset calculated over 8s...<br>
 **TODO** tests scripts...
 
 
-### timeref
+### 2.1 timeref
 
 1st we need to roughly set the time to be within -/+500ms.<br>
 Use `timeref -s` to set the system time from GPSD thanks to NMEA sentence. If
@@ -44,7 +45,7 @@ delay.
 Something like `ntpdate` could be used instead, with probably a better precision...
 
 
-### ppsd
+### 2.2 ppsd
 
 By design, `ppsd` can handle offset between -500ms and +500ms __**ONLY**__ !
 
@@ -58,13 +59,13 @@ correction done.
    - `-D 1000000` adjust for measured drift if less than 1000000ppb
    - `-o -500000000 -O +500000000` offset correction by temporary frequency change
 
-#### drift limit, option '-D'
+#### 2.2.1 drift limit, option '-D'
 Setting maximum drift to 0 avoid drift correction (the default behaviour), any
 other value is a security in case something goes wrong so evaluated drift is
 far too big to be honest... My guess use something like 1000ppm (1000000ppb) is
 good enough. Or twice the clock drift if you're panaoid.
 
-#### offset limits, options '-o' and '-O'
+#### 2.2.2 offset limits, options '-o' and '-O'
 Offset correction can be done by abrutly by setting the clock, or smoothly by
 temporary changing the clock frequency. For this, 2 thresholds are used: `-o` for
 the min and `-O` the max offset.
@@ -81,7 +82,7 @@ Using 2 thresholds enable to avoid any jump in the past while jump in the future
 still doable to quickly compensate for very big negative offset. For example,
 use `-o -1000000 -O +500000000` to slow frequency when offset is greater than
 -1ms, thus abruptly change clock when when clock late by more than 1ms and never
-jump in the past.  
+jump in the past... Thiw could be very long !
 
 
 **TODO** std dev divisor to avoid clock setting, from 2 to 1...<br>
@@ -94,7 +95,7 @@ used for stats...<br>
 of PPS opening/setting, chowning "/dev/pps0" to "dialout" group do nothing...<br>
 
 
-### jfadjtimex
+### 2.3 jfadjtimex
 
 `jfadjtimex` is "adjtimex (2)" terminal interface using ppb and ns for units.<br>
 `jfadjtimex -f 20000` to adjust the clock frequency by 20000ppb (20ppm).<br>
@@ -105,7 +106,7 @@ JF from `jfadjtimex` is for "Just the Function..." and thus avoid any name
 conflict with the well known "adjtimex (8)" application.
 
 
-### tools
+### 2.4 tools
 
 `ppsd_plot.sh`, `ppsd_hist.sh` and a couple of OCTAVE/MATLAB scripts.
 
@@ -113,7 +114,7 @@ conflict with the well known "adjtimex (8)" application.
 
 ---
 
-## How to on a PC
+## 3. How to on a PC
 
 `ldattach PPS /dev/ttyS0`<br>
 `setserial /dev/ttyS0 low_latency`
@@ -139,7 +140,7 @@ histogram done on ppsd results looks more natural than the chrony ones...
 
 ---
 
-## How to on rPI/Jetson
+## 4. How to on rPI/Jetson
 
 Adding `nohz=off` to "/boot/firmware/cmdline.txt" make no arm... on my RPI5,
 std dev goes from 700ns down to 300ns !
@@ -161,7 +162,7 @@ Here's a run of ppsd on a JETSON NANO:<br>
 <img src="data/ppsd-jetson.txt.off-hist.png" alt="ppsd hist"
  width="300" height="200">
 
-### PPS
+### 4.1 PPS
 
 Setting PPS input (PIN7 GPIO4):<br>
 add `dtoverlay=pps-gpio,gpiopin=4` in "/boot/firmware/config.txt"
@@ -180,7 +181,7 @@ On a PC, `ldattach PPS /dev/ttyXTZ` may be necessary to create the PPS device.
 **TODO TODO TODO** **TRY [__THIS__](https://forums.raspberrypi.com/viewtopic.php?p=2378538&hilit=hardware+counter#p2378621)** (github [repo](https://github.com/by/linux-PPS/tree/pps-rt-v7-clean))
 
 
-### GPS
+### 4.2 GPS
 
 Setting UART (PIN8 GPIO14 and PIN10 GPIO15):<br>
 add `enable_uart=1` in "/boot/firmware/config.txt"
@@ -196,7 +197,7 @@ Edit "/etc/default/gpsd" to add `DEVICES="/dev/ttyAMA0 /dev/pps0"` and
 alternative to U-Blox "U-center" (windows only), `pip install pygpsclient`.
 
 
-### CHRONY
+### 4.3 CHRONY
 
 `apt install chrony`
 
@@ -213,7 +214,7 @@ allow 192.168.1.0/24
 ```
 
 
-### DS3231
+### 4.4 DS3231
 
 Add `dtoverlay=i2c-rtc,ds3231` to "/boot/firmware/config.txt".
 
@@ -240,7 +241,7 @@ see "/etc/adjtime"
 `timedatectl` use /dev/rtc -> change to the link accordingly or use an "udev" rule.
 
 
-### PTP
+### 4.5 PTP
 
 **todo** ptp4l, phc2sys, phc_ctl
 
@@ -249,7 +250,7 @@ A RPi PTP server [repo](https://github.com/parlaynu/pi5-timeserver-gps-pps)<br>
 
 ---
 
-## Links
+## 5. Links
 
 This [repo](https://github.com/jfargentino/ppsd)
 
