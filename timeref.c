@@ -1,6 +1,7 @@
 #include <gps.h> // Need GPSD to run
 #include <math.h>
 #include <stdbool.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -84,6 +85,7 @@ static int gpsd_get_fix (struct gps_data_t * gps_data,
 #ifndef GPSD_TIMEOUT_S
     #define GPSD_TIMEOUT_S (15*60)
 #endif
+#define GPSD_PORT_DEFAULT "2947"
 
 // TODO defined as a static to avoid gpsd_timeref stack overflow (29k)
 static struct gps_data_t _gps_data = { 0 };
@@ -95,7 +97,9 @@ int gpsd_timeref(char const * gpsd_addr,
     
     // TODO SHM ?
     // TODO man is not clear if we should use gps_open return or errno !
-    int err = gps_open(gpsd_addr, gpsd_port, &_gps_data);
+    int err = gps_open(gpsd_addr,
+                       gpsd_port == NULL ? GPSD_PORT_DEFAULT : gpsd_port,
+                       &_gps_data);
     if (0 != err) {
         slogout("GPSD connection error: %s!\n", gps_errstr(err));
         return -1;
@@ -133,8 +137,6 @@ int gpsd_timeref(char const * gpsd_addr,
  * /////////////////////////////////////////////////////////////////////////////
  */
 
-#ifdef SNTP_TIMEREF
-
 struct sntp_info_t{
     uint8_t li_vn_mode; // li   2 bit code warning of a leap second
                         // vn   3 bit integer version number
@@ -146,17 +148,20 @@ struct sntp_info_t{
     int32_t root_delay; // 32 bit signed fixed point total roundtrip delay
     uint32_t root_disp; // 32 bit unsigned indicating the maximum error due to the clock frequency tolerance  
     uint32_t refid; // 32 bits. Reference clock identifier
-    uint64_t reftim; //  64-bit Reference Timestamp
-    uint64_t oritim; //  64-bit originate Timestamp
-    uint64_t recitim; //  64-bit receive Timestamp 
-    uint64_t trantim; //  64-bit transmit Timestamp; Time at which packet left the server. For most cases, using this gets you pretty accurate time.
-
+    uint32_t reftim_sec; //  32-bit Reference Timestamp seconds
+    uint32_t reftim_frac; //  32-bit Reference Timestamp fractionnal part
+    uint32_t oritim_sec; //  originate Timestamp
+    uint32_t oritim_frac;
+    uint32_t recitim_sec; //  receive Timestamp 
+    uint32_t recitim_frac;
+    uint32_t trantim_sec; //  transmit Timestamp; Time at which packet left the server. For most cases, using this gets you pretty accurate time.
+    uint32_t trantim_frac;
     //384 Bytes
 };
 
 // This timestap is the difference between 1900 and the unix epoch 1970.
 // We subtract this from the trasmit timestamp to get the current time
-#define NTP_TIMESTAMP_DELTA 2208988800ull
+#define NTP_TIMESTAMP_DELTA 2208988800
 
 // Here li = 0, vn = 3, mode = 3, which corresponds to (in binary)
 //      li = 00 , vn = 011 , mode = 011 -> 00011011 which is 27 in decimal
@@ -178,7 +183,10 @@ int sntp_timeref(char const * sntp_addr,
     hints.ai_flags = AI_PASSIVE;
 
     struct addrinfo *result, *p;
-    int status = getaddrinfo(sntp_addr, sntp_port, &hints, &result);
+    int status = getaddrinfo(sntp_addr,
+                             sntp_port == NULL ? "ntp" : sntp_port,
+                             &hints,
+                             &result);
     if(status != 0) {
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
         return -1;
@@ -205,7 +213,7 @@ int sntp_timeref(char const * sntp_addr,
         return -1;
     }
 
-    int n;
+    ssize_t n;
     n = write( sockfd, ( char* ) &packet, sizeof(struct sntp_info_t) );
 
     if (n < 0){
@@ -214,23 +222,26 @@ int sntp_timeref(char const * sntp_addr,
     }
 
     n = read(sockfd, ( char* ) &packet, sizeof(struct sntp_info_t));
-
     if (n < 0){
         fprintf(stderr, "client: error reading from socket\n");
         return -1;
     }
-
     freeaddrinfo(result);
     // converting from network byte order to host byte order
-    unsigned char *b = (unsigned char*)&packet.trantim;
-    uint32_t trantim = (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 |
-                       (uint32_t)b[2]  << 8 | (uint32_t)b[3]  << 0;
+    time_t sec = ntohl(packet.trantim_sec) - NTP_TIMESTAMP_DELTA;
+    long nsec = ((long)ntohl(packet.trantim_frac) * 1000000000) >> 32;
+    if (NULL != timeref) {
+        timeref->tv_sec = sec;
+        timeref->tv_nsec = nsec;
+    }
+    if (NULL != timenow) {
+        timenow->tv_sec = ntohl(packet.recitim_sec) - NTP_TIMESTAMP_DELTA;
+        timenow->tv_nsec = ((long)ntohl(packet.recitim_frac) * 1000000000)
+                             >> 32;
+    }
 
-    time_t actual_time = ( time_t ) ( trantim - NTP_TIMESTAMP_DELTA );
-
-    return actual_time;
+    return 1;
 }
-#endif // SNTP_TIMEREF
 
 /*
  * /////////////////////////////////////////////////////////////////////////////
@@ -243,32 +254,55 @@ int sntp_timeref(char const * sntp_addr,
 #include <string.h>
 
 static struct timespec timeref = { 0 };
+static struct timespec timestamp = { 0 };
 
 static long long _once(char const * gpsd_addr, char const * gpsd_port) {
-    struct timespec timediff = { 0 };
-    struct timespec timestamp = { 0 };
-    int ret = gpsd_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
-    if (ret <= 0) {
-        fprintf(stdout, "GPSD %s\n", (ret == 0)?"time out":"error");
-        if (ret < 0) {
-            fprintf(stdout, "\"%s\" (%d)\n", strerror(errno), errno);
+
+    static int ret_gpsd = 0;
+    static int ret_sntp = 0;
+    
+    if ((ret_gpsd == 0) && (ret_sntp == 0)) {
+        ret_gpsd = gpsd_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
+        if (ret_gpsd <= 0) {
+            ret_sntp = sntp_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
         }
-        return 0;
+    } else if (ret_gpsd > 0) {
+        ret_gpsd = gpsd_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
+    } else if (ret_sntp > 0) {
+        ret_sntp = sntp_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
     }
-               // FIXME WHY ++ ?!?
-    /* FIXME */ timeref.tv_sec ++; /* FIXME */
-             // FIXME WHY ++ ?!?
-    fprintf(stdout, "GPSD Time %ld.%09ld", timeref.tv_sec, timeref.tv_nsec);
+    if ((ret_gpsd <= 0) && (ret_sntp <= 0)) {
+        fprintf(stdout,
+                "%s:%s is not a GPSD nor SNTP server\n",
+                gpsd_addr, gpsd_port);
+        return 0LL;
+    }
+    if (ret_gpsd > 0) {
+        // FIXME WHY ++ ?!?
+        timeref.tv_sec ++;
+        fprintf(stdout,
+                "GPSD Time %ld.%09ld",
+                timeref.tv_sec, timeref.tv_nsec);
+    } else {
+        fprintf(stdout,
+                "SNTP Time %ld.%09ld",
+                timeref.tv_sec, timeref.tv_nsec);
+    }
+
+    struct timespec timediff = { 0 };
     timespec_diff (&timestamp, &timeref, &timediff);
     long long off_ns = timespec2ns(&timediff);
     if ((off_ns <= -1000000000) || (off_ns >= +1000000000)) {
         double off_s = ((double)(off_ns)) / ns_per_s;
         fprintf(stdout, " (offset %+.3lfs)\n", off_s);
     } else if ((off_ns <= -1000000) || (off_ns >= +1000000)) {
-        double off_ms = (1000.0 * off_ns) / ns_per_s;
+        double off_ms = (1000.0l * off_ns) / ns_per_s;
         fprintf(stdout, " (offset %+.3lfms)\n", off_ms);
     } else {
         fprintf(stdout, " (offset %+lldns)\n", off_ns);
+    }
+    if (ret_sntp > 0) {
+        usleep((1000000000 - timeref.tv_nsec) / 1000);
     }
 
     return off_ns;
@@ -283,8 +317,8 @@ static long long _once(char const * gpsd_addr, char const * gpsd_port) {
 
 static struct option long_opts[] = {
     /* GPSD and GPS parameters */
-    {"gpsd-addr", required_argument, NULL, 'a'},
-    {"gpsd-port", required_argument, NULL, 'p'},
+    {"addr", required_argument, NULL, 'a'},
+    {"port", required_argument, NULL, 'p'},
     /* TODO PPS parameters
     {"pps-dev", required_argument, NULL, 'P'},
     {"pps-assert", no_argument, NULL, 'A'},
@@ -294,7 +328,7 @@ static struct option long_opts[] = {
     {"set-clock", no_argument, NULL, 's'},
     {"force-clock", no_argument, NULL, 'f'},
     {"max-offset", required_argument, NULL, 'o'},
-    {"continuous", no_argument, NULL, 'C'},
+    {"continuous", no_argument, NULL, 'c'},
     {"verbose", no_argument, NULL, 'v'},
     {"quiet", no_argument, NULL, 'q'},
     /* show usage */
@@ -302,14 +336,14 @@ static struct option long_opts[] = {
     {0,0,0,0}
 };
 
-// TODO if a PPS is provided, use ir to set the clock !
+// TODO if a PPS is provided, use it to set the clock !
 int main(int argc, char ** argv) {
     
     timeref_stdout = stdout;
     timeref_stderr = NULL;
 
-    char const * gpsd_addr = "localhost";
-    char const * gpsd_port = "2947";
+    char const * addr = "localhost";
+    char const * port = NULL;
     bool set_clock = false;
     bool force_clock = false;
     bool cont = false;
@@ -322,10 +356,10 @@ int main(int argc, char ** argv) {
                               short_opts, long_opts, NULL)) != -1) {
         switch (opt) {
             case 'a':
-            gpsd_addr = optarg;
+            addr = optarg;
             break;
             case 'p':
-            gpsd_port = optarg;
+            port = optarg;
             break;
             case 's':
             set_clock = true;
@@ -337,7 +371,7 @@ int main(int argc, char ** argv) {
             case 'o':
             max_offset_ns = atol(optarg);
             break;
-            case 'C':
+            case 'c':
             cont = true;
             break;
             case 'v':
@@ -354,7 +388,7 @@ int main(int argc, char ** argv) {
         }
     }
 
-    long long off_ns = _once(gpsd_addr, gpsd_port);
+    long long off_ns = _once(addr, port);
     if (off_ns == 0) {
         exit (EXIT_FAILURE);
     }
@@ -378,7 +412,7 @@ int main(int argc, char ** argv) {
     }
 
     if (cont) while (off_ns) {
-        off_ns = _once(gpsd_addr, gpsd_port);
+        off_ns = _once(addr, port);
     }
 
     exit (EXIT_SUCCESS);

@@ -14,11 +14,10 @@ int gpsd_timeref(char const * gpsd_addr,
                  struct timespec * timeref,
                  struct timespec * timenow);
 
-/*
-int sntp_timeref(char const * sntp_addr,
-                 char const * sntp_port,
+int sntp_timeref(char const * sntp_addr, /* "ntp.unice.fr" */
+                 char const * sntp_port, /* "ntp" */
                  struct timespec * timeref,
                  struct timespec * timenow);
-*/
+
 #endif // TIMEREF_H
 

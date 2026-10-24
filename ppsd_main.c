@@ -97,7 +97,8 @@ static char const * long_descr =
 "\t-if doing correction, stop any time synchronizing service like NTPD,\n"
 "\t CHRONYD, PTP...\n"
 "\n"
-"TODO: A 2nd argument to record in a file instead of stdout.\n"
+"TODO: A 2nd argument for gpsd socket -> drift eval between OFF.\n"
+"TODO: A 3rd argument to record in a file instead of stdout.\n"
 "\n";
 
 int main(int argc, char *argv[]) {

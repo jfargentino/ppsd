@@ -81,6 +81,7 @@ static struct ppsd_t _PPSD_ = {
 FILE * ppsdout = NULL;
 FILE * ppsderr = NULL;
 FILE * ppsddbg = NULL;
+FILE * driftfd = NULL;
 
 #define STDOUT ppsdout
 #define STDERR ppsderr
@@ -241,10 +242,8 @@ int ppsd_update(struct ppsd_t * ppsd,
             (void)pps_stats_update(ppsd->drift_stats,
                                    ppsd_timeref(ppsd),
                                    pps_off_ns + ppsd->cum_off_ns);
-            // TODO print drift stat on its own fd to check it
-            if (ppsd->off_stats == NULL) {
-                pps_stats_flast(ppsdout, ppsd->drift_stats, options);
-            }
+            // print drift stat on its own fd to check it
+            pps_stats_flast(driftfd, ppsd->off_stats, options);
         }
     }
 
@@ -281,7 +280,7 @@ int ppsd_adj_drift_ppb(struct ppsd_t * ppsd, long max_drift_ppb) {
     }
     long freq_ppb = adjtimex_get_freq();
     int ret = adjtimex_adj_freq(-drift_ppb);
-    // TODO check cumulative drift == adjtimex correction
+    // check cumulative drift == adjtimex correction
     ppsd->cum_drift_ppb += drift_ppb;
     (void)adjtimex_snapshot(&ppsd->tx);
     fcmt(ppsdout, "Adjusting freq %+ldppb by %+lldppb = %+ldppb return %d\n",
@@ -371,12 +370,13 @@ static long ppsd_tick_us(long * smooth_min_ppb) {
             fcmt(ppsdout,
         "Adjusting tick %ld%+ldus (%+ldppb) during %lds for %+lldns offset\n",
                   tick_us, -tickadj_max_us, smooth_max_ppb, s, offset_ns);
+            // TODO if adjtimex_adj_tick fails ?
             ret = adjtimex_adj_tick(-tickadj_max_us);
-            while (s > 0) {
+            int ok = 1;
+            while ( (s > 0) && (ok >= 0) ) {
                 ppsd->cum_off_ns += smooth_max_ppb;
                 slogdbg("cumulative offset %+lldns\n", ppsd->cum_off_ns);
-                // TODO check return !!!
-                (void)ppsd_update(ppsd, 0.0L, 0.0L, options);
+                ok = ppsd_update(ppsd, 0.0L, 0.0L, options);
                 s --;
             }
             ret = adjtimex_adj_tick(+tickadj_max_us);
