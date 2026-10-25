@@ -163,6 +163,17 @@ struct sntp_info_t{
 // We subtract this from the trasmit timestamp to get the current time
 #define NTP_TIMESTAMP_DELTA 2208988800
 
+static time_t ntp2timespec (uint32_t s, uint32_t frac, struct timespec * ts) {
+    time_t sec = ntohl(s) - NTP_TIMESTAMP_DELTA;
+    long nsec = ((long)ntohl(frac) * 1000000000) >> 32;
+    if (ts != NULL) {
+        ts->tv_sec = sec;
+        ts->tv_nsec = nsec;
+    }
+    return sec;
+}
+
+
 // Here li = 0, vn = 3, mode = 3, which corresponds to (in binary)
 //      li = 00 , vn = 011 , mode = 011 -> 00011011 which is 27 in decimal
 #define LI_VN_MODE 27
@@ -227,19 +238,23 @@ int sntp_timeref(char const * sntp_addr,
         return -1;
     }
     freeaddrinfo(result);
-    // converting from network byte order to host byte order
-    time_t sec = ntohl(packet.trantim_sec) - NTP_TIMESTAMP_DELTA;
-    long nsec = ((long)ntohl(packet.trantim_frac) * 1000000000) >> 32;
+    ntp2timespec(packet.trantim_sec, packet.trantim_frac, timeref);
     if (NULL != timeref) {
-        timeref->tv_sec = sec;
-        timeref->tv_nsec = nsec;
+        slogerr("SNTP Tx time %ld.%09ld\n",
+                timeref->tv_sec, timeref->tv_nsec);
     }
     if (NULL != timenow) {
-        timenow->tv_sec = ntohl(packet.recitim_sec) - NTP_TIMESTAMP_DELTA;
-        timenow->tv_nsec = ((long)ntohl(packet.recitim_frac) * 1000000000)
-                             >> 32;
+        ntp2timespec(packet.recitim_sec, packet.recitim_frac, timenow);
+        slogerr("SNTP Rx time %ld.%09ld\n",
+                timenow->tv_sec, timenow->tv_nsec);
     }
-
+    if (timeref_stderr != NULL) {
+        int32_t x = ntohl(packet.root_delay);
+        double delay = ((double)x / 65536.0f);
+        x = ntohl(packet.root_disp);
+        double disp = ((double)x / 65536.0f);
+        slogerr("SNTP delay %fs, dispersion +/-%fs\n", delay, disp);
+    }
     return 1;
 }
 
@@ -301,7 +316,7 @@ static long long _once(char const * gpsd_addr, char const * gpsd_port) {
     } else {
         fprintf(stdout, " (offset %+lldns)\n", off_ns);
     }
-    if (ret_sntp > 0) {
+    if ( (ret_sntp > 0) && (true) ) {
         usleep((1000000000 - timeref.tv_nsec) / 1000);
     }
 
