@@ -20,7 +20,7 @@ struct ppsd_t;
  *      - capture_assert: PPS on rising edge if true, falling edge otherwise.
  *      - hw_offset_ns: PPS offset in ns, if any. Can be negative.
  *      - drift_pps_count: nb of PPS used for drift evaluation.
- *      - offset_pps_count: nb of PPS used for oofset evaluation.
+ *      - offset_pps_count: nb of PPS used for offset evaluation.
  */
 struct ppsd_t * ppsd_open(char const * path,
                           bool capture_assert,
@@ -28,7 +28,6 @@ struct ppsd_t * ppsd_open(char const * path,
                           unsigned int drift_pps_count,
                           unsigned int offset_pps_count);
 
-// TODO static for cppcheck
 /* 
  * Set the time reference, i.e. the "absolute real" timestamp of the last PPS.
  * If given timeref is NULL, use its last PPS timestamp rounded to plain
@@ -45,8 +44,6 @@ int ppsd_update(struct ppsd_t * ppsd,
                 long double predict_ns,
                 long double dist2predict_max_ns,
                 unsigned int options);
-
-void ppsd_close(struct ppsd_t * ppsd);
 
 /*
  * Adjust the CLK frequency with the last estimated drift if its absolute
@@ -74,6 +71,8 @@ int ppsd_run(struct ppsd_t * ppsd,
              long max_drift_ppb,
              long min_offset_ns,
              long max_offset_ns);
+
+void ppsd_close(struct ppsd_t * ppsd);
 
 #endif
 

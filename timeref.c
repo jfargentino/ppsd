@@ -85,7 +85,6 @@ static int gpsd_get_fix (struct gps_data_t * gps_data,
 #ifndef GPSD_TIMEOUT_S
     #define GPSD_TIMEOUT_S (15*60)
 #endif
-#define GPSD_PORT_DEFAULT "2947"
 
 // TODO defined as a static to avoid gpsd_timeref stack overflow (29k)
 static struct gps_data_t _gps_data = { 0 };
@@ -97,7 +96,7 @@ int gpsd_timeref(char const * gpsd_addr,
     
     // TODO SHM ?
     // TODO man is not clear if we should use gps_open return or errno !
-    int err = gps_open(gpsd_addr,
+    int err = gps_open(gpsd_addr == NULL ? GPSD_ADDR_DEFAULT : gpsd_addr,
                        gpsd_port == NULL ? GPSD_PORT_DEFAULT : gpsd_port,
                        &_gps_data);
     if (0 != err) {
@@ -195,7 +194,7 @@ int sntp_timeref(char const * sntp_addr,
 
     struct addrinfo *result, *p;
     int status = getaddrinfo(sntp_addr,
-                             sntp_port == NULL ? "ntp" : sntp_port,
+                             sntp_port == NULL ? SNTP_PORT_DEFAULT : sntp_port,
                              &hints,
                              &result);
     if(status != 0) {
@@ -271,25 +270,29 @@ int sntp_timeref(char const * sntp_addr,
 static struct timespec timeref = { 0 };
 static struct timespec timestamp = { 0 };
 
-static long long _once(char const * gpsd_addr, char const * gpsd_port) {
+static long long _once(char const * addr, char const * port) {
 
     static int ret_gpsd = 0;
     static int ret_sntp = 0;
     
-    if ((ret_gpsd == 0) && (ret_sntp == 0)) {
-        ret_gpsd = gpsd_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
-        if (ret_gpsd <= 0) {
-            ret_sntp = sntp_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
+    if (addr == NULL) {
+        ret_gpsd = 1;
+    }
+    
+    if ((ret_gpsd <= 0) && (ret_sntp <= 0)) {
+        ret_sntp = sntp_timeref(addr, port, &timeref, &timestamp);
+        if (ret_sntp <= 0) {
+            ret_gpsd = gpsd_timeref(addr, port, &timeref, &timestamp);
         }
     } else if (ret_gpsd > 0) {
-        ret_gpsd = gpsd_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
+        ret_gpsd = gpsd_timeref(addr, port, &timeref, &timestamp);
     } else if (ret_sntp > 0) {
-        ret_sntp = sntp_timeref(gpsd_addr, gpsd_port, &timeref, &timestamp);
+        ret_sntp = sntp_timeref(addr, port, &timeref, &timestamp);
     }
     if ((ret_gpsd <= 0) && (ret_sntp <= 0)) {
         fprintf(stdout,
-                "%s:%s is not a GPSD nor SNTP server\n",
-                gpsd_addr, gpsd_port);
+                "%s:%s is not a GPSD nor NTP server\n",
+                addr, port);
         return 0LL;
     }
     if (ret_gpsd > 0) {
@@ -402,8 +405,18 @@ int main(int argc, char ** argv) {
             break;
         }
     }
+    
+    long long off_ns = 0ll;
+    if (optind < argc) {
+        while ( (optind < argc) && (off_ns == 0ll) ) {
+            addr = argv[optind];
+            off_ns = _once(addr, port);
+            optind ++; 
+        }
+    } else {
+        off_ns = _once(addr, port);
+    }
 
-    long long off_ns = _once(addr, port);
     if (off_ns == 0) {
         exit (EXIT_FAILURE);
     }

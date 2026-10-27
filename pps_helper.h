@@ -12,6 +12,7 @@ struct pps_t;
 
 /*****************************************************************************
  * The PPS edge is a global system parameter ! Probably set the interrupt...
+ * RFC 2783
  *****************************************************************************/
 struct pps_t * pps_open(char const * path, bool capture_assert);
 

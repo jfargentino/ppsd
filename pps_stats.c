@@ -2,6 +2,7 @@
 #include <math.h>
 #include <limits.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,7 +28,6 @@ struct _off_t {
 
 /*****************************************************************************
  * Circular offset buffer.
-// TODO short window stats too ?
 // TODO skewness, kurtosis
 // TODO mean - median as poor skewness ?
  *****************************************************************************/
@@ -159,14 +159,17 @@ struct offset_t const * pps_stats_highest(struct pps_stats_t const * stats) {
 
 
 // TODO DANGEROUS !!!
-#define _OFF_T(x) ((struct _off_t const *)x)
+//#define _OFF_T(x) ((struct _off_t const *)x)
+// GEMINI version
+#define _OFF_T(x) ( \
+    (struct _off_t const *)((char const *)x - offsetof(struct _off_t, priv)) \
+)
 
 struct offset_t const * pps_stats_lower(struct pps_stats_t const * stats,
                                         struct offset_t const * x) {
     if (NULL == x) {
         return pps_stats_highest(stats);
     }
-    // TODO DANGEROUS !!!
     struct _off_t const * _x = _OFF_T(x);
     if (_x->prev >= pps_stats_length(stats)) {
         return NULL;
@@ -176,8 +179,7 @@ struct offset_t const * pps_stats_lower(struct pps_stats_t const * stats,
 
 static long _pps_stats_older (struct pps_stats_t const * stats,
                               struct offset_t const * x) {
-    // TODO DANGEROUS !!!
-    long int k = _OFF_T(x) - stats->offset;
+    long int k = _OFF_T(x) - (struct _off_t const *)stats->offset;
     //slogdbg("stats[k]@%p, stats[0]@%p -> k=%lu\n",
     //        (void const *)x, (void const *)stats->offset, k);
     return k;
@@ -188,19 +190,22 @@ struct offset_t const * pps_stats_older(struct pps_stats_t const * stats,
     if (NULL == x) {
         return pps_stats_newest(stats);
     }
-    // TODO DANGEROUS !!!
-    long k = _pps_stats_older(stats, x);
-    if (k == 0) {
-        k =  pps_stats_length(stats) - 1u;
-    } else {
-        k --;
+    if (pps_stats_empty(stats)) {
+        return NULL;
     }
+    long k = _pps_stats_older(stats, x);
     if (k < 0) {
         // TODO error
         //ass(k > 0);
         return NULL;
     }
-    if (k >= pps_stats_length(stats)) {
+    if (k == 0) {
+        k =  pps_stats_length(stats) - 1u;
+    } else {
+        k --;
+    }
+    ass(k >= 0);
+    if ((unsigned)k >= pps_stats_length(stats)) {
         // TODO error if >
         ass(k == pps_stats_length(stats));
         return NULL;
@@ -400,18 +405,24 @@ static long double pps_stats_var(struct pps_stats_t const * stats,
     if ((window > 0u) && (window < length)) {
         length = window;
     }
+    if (length <= PPS_STATS_VAR_UNBIASED) {
+        slogdbg("%s !!!\n", "One only");
+        return 0.0L;
+    }
     long double m = 0.0L;
     long double cum2 = _pps_stats_cums(stats, &m, length);
     m /= length;
     if (mean != NULL) {
         *mean = m;
     }
-    if (length <= PPS_STATS_VAR_UNBIASED) {
-        slogdbg("%s !!!\n", "One only");
-        return 0.0L;
+
+    long double var = ( cum2 - (long double)length*m*m ) 
+                    / (long double)( length - PPS_STATS_VAR_UNBIASED );
+    if (var < 0.0l) {
+        slogerr("var = %+Lf !\n", var);
+        var = 0.0L;
     }
-    return (cum2 - (long double)length*m*m) 
-                 / (long double)(length - PPS_STATS_VAR_UNBIASED);
+    return var;
 }
 
 long double pps_stats_mean(struct pps_stats_t const * stats,
@@ -420,6 +431,7 @@ long double pps_stats_mean(struct pps_stats_t const * stats,
     long double mean = 0.0l;
     long double var = pps_stats_var(stats, &mean, window);
     if (stddev != NULL) {
+        ass(var >= 0.0L);
         *stddev = sqrtl(var);
     }
     return mean;
@@ -623,6 +635,7 @@ static void pps_stats_print2(FILE * file,
             flog(file, "%+9.0Lf%s, ", mean, print_units ? "ns" : "");
         }
         if (options & PPS_STATS_PRINT_STDDEV) {
+            ass(var >= 0.0L);
             flog(file, "%9.0Lf%s, ", sqrtl(var), print_units ? "ns" : "");
         }
     }

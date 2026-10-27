@@ -147,16 +147,18 @@ struct ppsd_t * ppsd_open(char const * path,
 }
 
 static int ppsd_stats_release(struct ppsd_t * ppsd) {
+    int rel = 0;
     if (ppsd->drift_stats != NULL) {
         pps_stats_dtor(ppsd->drift_stats);
         ppsd->drift_stats = NULL;
-        return 0;
+        rel ++;
     }
     if (ppsd->off_stats != NULL) {
         pps_stats_dtor(ppsd->off_stats);
         ppsd->off_stats = NULL;
+        rel ++;
     }
-    return 1;
+    return rel;
 }
 
 void ppsd_close(struct ppsd_t * ppsd) {
@@ -354,12 +356,22 @@ static long ppsd_tick_us(long * smooth_min_ppb) {
         // smooth clock setting
         long smooth_min_ppb = 0;
         long tick_us = ppsd_tick_us(&smooth_min_ppb);
+        if (tick_us <= 0) {
+            slogerr("ppsd_tick_us return %+ld !\n", tick_us);
+            return -1;
+        }
         // smooth_min_ppb = +/-100ppm per default
         // smooth_max_ppb = +/-1% -> +/-10ms/s
         long tickadj_max_us = 100;
         long smooth_max_ppb = tickadj_max_us * smooth_min_ppb;
         long aoffset_ns = (offset_ns > 0) ? (+offset_ns) : (-offset_ns);
         long s0 = aoffset_ns / smooth_max_ppb;
+        ass(smooth_max_ppb != 0);
+        if (smooth_max_ppb == 0) {
+            slogerr("%+ld (tickadj_max_us) * %+ld (smooth_min_ppb) is 0 !\n",
+                    tickadj_max_us, smooth_min_ppb);
+            return -1;
+        }
         long complement_ns = aoffset_ns % smooth_max_ppb;
         if (s0 > 0) {
             long s = s0;

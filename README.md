@@ -35,9 +35,10 @@ like drift is really high when offset calculated over 8s...<br>
 ### 2.1 timeref
 
 1st we need to roughly set the time to be within -/+500ms.<br>
-Use `timeref -s` to set the system time from GPSD thanks to NMEA sentence. If
-time difference is less than 500ms, do nothing. Use `timeref -f` to always set
-the time.
+Use `timeref -s` to set the system time from GPSD thanks to NMEA sentence, or
+with a SNTP request. If times difference is less than 500ms, do nothing.
+Use `timeref -f` to always set the time, even if the times difference is less
+than 500ms.
 
 **TODO** +/-500ms is not the good threshold, we should compensante for the NMEA
 delay.
@@ -135,8 +136,9 @@ histogram done on ppsd results looks more natural than the chrony ones...
 <img src="data/ppsd-laptop.txt.off-hist.png" alt="ppsd hist"
  width="300" height="200">
 
+ **TODO** RFC 2783<br>
  **TODO** Median filter<br>
- **TODO** Same length runs for both... 
+ **TODO** Same length runs for both... <br>
 
 ---
 

@@ -42,8 +42,8 @@ void timespec_sum (struct timespec const * t0,
  *     - a positive nb if t0 > t1
  *     - 0 if t0 == t1
  *****************************************************************************/
-long timespec_cmp (struct timespec const * t0,
-                   struct timespec const * t1);
+long long timespec_cmp (struct timespec const * t0,
+                        struct timespec const * t1);
 
 /*****************************************************************************
  * Converts the given timespec in the equivalent nb of nanoseconds.
