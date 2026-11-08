@@ -23,5 +23,13 @@ int sntp_timeref(char const * sntp_addr,
                  struct timespec * timeref,
                  struct timespec * timenow);
 
+#define UART_DEV_DEFAULT "/dev/ttyUSB0"
+#define UART_CFG_DEFAULT "384008N1" /*TODO*/
+
+int nmea_timeref(char const * uart_dev,
+                 char const * uart_cfg,
+                 struct timespec * timeref,
+                 struct timespec * timenow);
+
 #endif // TIMEREF_H
 
