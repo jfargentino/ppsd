@@ -4,6 +4,7 @@ timeref
 pps_stats
 ppsd
 kalman
+nmea
 mk_version.sh
 version.h
 ppsd.sloccount

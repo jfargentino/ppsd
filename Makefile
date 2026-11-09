@@ -14,7 +14,7 @@ else
 endif
 
 # Build targets ###############################################################
-TARGETS=ppsd timeref jfadjtimex pps_stats kalman
+TARGETS=ppsd timeref jfadjtimex pps_stats kalman nmea
 TESTS=timespec
 
 #all: $(TARGETS) check
@@ -25,6 +25,7 @@ full: all check doc build/ppsd.pmccabe build/ppsd.sloccount
 # Sources files ###############################################################
 SRCS+=adjtimex_helper.c
 SRCS+=kalman.c
+SRCS+=nmea.c
 SRCS+=pps_helper.c
 SRCS+=pps_stats.c
 SRCS+=ppsd.c
@@ -45,6 +46,9 @@ version.h: mk_version.sh $(SRCS) $(HDRS)
 
 ppsd: $(OBJS) build/ppsd_main.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ $(LDFLAGS) -lgps -o $@
+
+nmea: nmea.c
+	$(CC) $(CFLAGS) -DNMEA_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -o $@
 
 kalman: kalman.c build/pps_helper.o build/timespec_helper.o
 	$(CC) $(CFLAGS) -DKALMAN_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -o $@
