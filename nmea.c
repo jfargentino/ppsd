@@ -2,21 +2,17 @@
 #include <fcntl.h>
 #include <linux/serial.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "nmea.h"
 
 FILE* nmea_stdout = NULL;
 FILE* nmea_stderr = NULL;
 FILE* nmea_stddbg = NULL;
-#define STDOUT nmea_stdout
-#define STDERR nmea_stderr
-#define STDDBG nmea_stddbg
-#include "slog.h"
 
 /*
  * /////////////////////////////////////////////////////////////////////////////
@@ -115,10 +111,15 @@ void nmea_close (int uart_port) {
 /*
  * /////////////////////////////////////////////////////////////////////////////
  */
-ssize_t nmea_read(int uart_port,
-                  char * buff,
-                  ssize_t buff_sz,
-                  struct timespec * ts) {
+
+/*
+ * Returns -1 on error, 0 on timeout, nb of bytes read otherwise.
+ * The buff is NUL terminated.
+ */
+ssize_t nmea_read_buff(int uart_port,
+                       char * buff,
+                       ssize_t buff_sz,
+                       struct timespec * ts) {
     if (buff_sz <= 0) {
         return -1;
     }
@@ -147,20 +148,23 @@ ssize_t nmea_read(int uart_port,
 }
 
 static ssize_t _char_idx (char x, char const * str) {
-    ssize_t k = 0u;
+    ssize_t k = 0;
     while ( (str[k] != '\0') && (str[k] != x) ) {
         k ++;
     }
     return (str[k] == x) ? k : -1;
 }
 
+// read and drop until the 1st $ encountered
+// return -2 if error, -1 if timeout, 0 if no $ read,
+// nb of char after $ otherwise
 static ssize_t _nmea_drop(int uart_port,
                           char * buff,
                           ssize_t buff_sz,
                           struct timespec * ts) {
-    ssize_t n = nmea_read(uart_port, buff, buff_sz, ts);
+    ssize_t n = nmea_read_buff(uart_port, buff, buff_sz, ts);
     if (n <= 0) {
-        return n;
+        return n - 1;
     }
     ass(n <= buff_sz);
     ssize_t h = _char_idx('$', buff);
@@ -181,93 +185,53 @@ static ssize_t _nmea_drop(int uart_port,
     return n - h;
 }
 
-static ssize_t _nmea_until(int uart_port,
-                           char * buff,
-                           ssize_t buff_sz,
-                           struct timespec * ts) {
-    ssize_t t = _char_idx('*', buff);
-    ssize_t e = _char_idx('\0', buff);
-    ass(e >= 0);
-    ass(e < buff_sz);
-    ass(t < e);
-    while ( (t < 0) && (e < buff_sz) ) {
-        slogdbg("No tail in %zd bytes\n", e);
-        ssize_t n = nmea_read(uart_port, &buff[e], buff_sz-e, ts);
-        if (n <= 0) {
-            // a timeout in the middle is an error
-            return -1;
-        }
-        t = _char_idx('*', buff);
-        e += n;
-    }
-    if (t < 0) {
-        // buffer full without *
-        return -1;
-    }
-    ass(e >= 0);
-    ass(e < buff_sz);
-    ass(t < e);
-    // NMEA sentence end detected //
-    slogdbg("\'%c\' at byte %zd/%zd (\'%c\')\n",
-            '*', t, e, buff[t]);
-    ass(buff[t] == '*');
-    ass(buff[e] == '\0');
-    return t;
-}
-
-static ssize_t _nmea_sentence(int uart_port,
-                              char * buff,
-                              ssize_t buff_sz,
-                              struct timespec * ts) {
-    ssize_t n = _nmea_drop(uart_port, buff, buff_sz, ts);
-    if (n <= 0) return n;
-    ssize_t t = _nmea_until(uart_port, buff, buff_sz, NULL);
-    if (t <= 0) return t;
-    ssize_t e = _char_idx('\0', buff);
-    ass(e >= 0);
-    ass(e < buff_sz);
-    ass(t < e);
-    slogdbg("%zd/%zd bytes consumed\n", t, e);
-    if (e > t + 2) {
-        // TODO csum on buff[t+1] and buff[t+2]
-        slogdbg("%.*s\n", (int)t+3, buff);
-        // TODO check there's only \n and/or \r
-    } else {
-        slogerr("%.*s CSUM MISSING !\n", (int)e, buff);
-    }
-    return t;
-}
-
 #ifndef NMEA_FIELDS_NB
-#define NMEA_FIELDS_NB 100
+#define NMEA_FIELDS_NB 32
 #endif
 
-struct nmea_t {
+#include <stdint.h>
+
+struct nmea_token_t {
     struct timespec t;
+    char const * str;
     char const * type;
     ssize_t nb;
     char const * field[NMEA_FIELDS_NB];
     ssize_t field_sz[NMEA_FIELDS_NB];
-    char csum[2];
+    ssize_t k;
+    uint8_t csum;
 };
 
-static ssize_t _nmea_tok (char const * buff, struct nmea_t * nmea) {
+static ssize_t _token_init (char const * buff,
+                            struct timespec const * t,
+                            struct nmea_token_t * nmea) {
     if (buff[0] != '$') {
         slogerr("\'%s\' does not start with \'%c\'\n", buff, '$');
         return -1;
     }
+    nmea->str = buff;
+    if (t != NULL) {
+        nmea->t = *t;
+    } else {
+        nmea->t.tv_sec = 0;
+    }
     nmea->type = buff + 1;
+    nmea->k = 1;
+    nmea->csum = 0x00;
     nmea->nb = 0;
     for (size_t nb = 0u; nb < NMEA_FIELDS_NB; nb++) {
         nmea->field[nb] = NULL;
         nmea->field_sz[nb] = 0;
     }
-    size_t k = 1u;
-    while ( (buff[k] != '\0') && (buff[k] != '*') ) {
-        if (buff[k] == ',') {
-            nmea->field[nmea->nb] = &buff[k+1];
-            slogdbg("%.*s[%zd]:%.*s...\n",
-                    5, nmea->type, nmea->nb, 16, nmea->field[nmea->nb]);
+    return 1;
+}
+
+static ssize_t _tokenize (struct nmea_token_t * nmea) {
+    ssize_t k = nmea->k;
+    while ( (nmea->str[k] != '\0') && (nmea->str[k] != '*') ) {
+        nmea->csum ^= (uint8_t)nmea->str[k];
+        if (nmea->str[k] == ',') {
+            nmea->field[nmea->nb] = &nmea->str[k+1];
             if (nmea->nb > 0) {
                 nmea->field_sz[nmea->nb-1]
                     = nmea->field[nmea->nb] - nmea->field[nmea->nb-1] - 1;
@@ -277,37 +241,152 @@ static ssize_t _nmea_tok (char const * buff, struct nmea_t * nmea) {
                         (int)nmea->field_sz[nmea->nb-1],
                         nmea->field[nmea->nb-1]);
             } else {
-                // 1st ',' should be at buff[6]
+                // 1st ',' should be at nmea->str[6]
                 if (k != 6) {
-                    slogerr("Misformed NMEA \"%s\"\n", buff);
+                    slogerr("NMEA type \"%.*s\" ?\n", (int)k, nmea->str);
                 }
             }
             nmea->nb ++;
         }
         k ++;
     }
-    if (buff[k] != '*') {
+    nmea->k = k;
+    if (nmea->str[k] != '*') {
         // end of buffer before end of NMEA
-        slogerr("\'%s\' does not end with \'%c\' in %zu bytes\n", buff, '*', k);
-        ass(buff[k] == '\0');
-        return 0;
+        slogerr("\'%s\' does not end with \'%c\' in %zu bytes\n",
+                nmea->str, '*', k);
+        ass(nmea->str[nmea->k] == '\0');
+        return 1; // read again
     }
+    // if here end of the NMEA sentence detected
+    ass(nmea->str[nmea->k] == '*');
     if (nmea->nb > 0) {
-        nmea->field_sz[nmea->nb-1] = &buff[k] - nmea->field[nmea->nb-1];
+        nmea->field_sz[nmea->nb-1] = &nmea->str[k] - nmea->field[nmea->nb-1];
         slogdbg("%.*s[%zd]:%.*s\n",
                 5, nmea->type,
                 nmea->nb-1,
                 (int)nmea->field_sz[nmea->nb-1],
                 nmea->field[nmea->nb-1]);
     }
-    //nmea->nb ++;
-    nmea->csum[0] = buff[k+1];
-    nmea->csum[1] = buff[k+2];
-    slogdbg ("%.*s containing %zd fields\n", 5, nmea->type, nmea->nb);
-    return +1;
+    return 0;
 }
 
-static void _nmea_print (struct nmea_t const * nmea, ssize_t nb) {
+static uint8_t _nibble (char c) {
+    uint8_t x = (uint8_t)c;
+    if ( (c >= '0') && (c <= '9') ) {
+        return x - '0';
+    }
+    if ( (c >= 'a') && (c <= 'f') ) {
+        return x - 'a' + 10;
+    }
+    if ( (c >= 'A') && (c <= 'F') ) {
+        return x - 'A' + 10;
+    }
+    return 0xFF;
+}
+
+static ssize_t _token_csum (struct nmea_token_t * nmea) {
+    if (nmea->str[nmea->k] != '*') {
+        return -1;
+    }
+    if (nmea->str[nmea->k+1] == '\0') {
+        slogerr("\'%.*s\' missing csum\n", 5, nmea->type);
+        return 2;
+    }
+    if (nmea->str[nmea->k+2] == '\0') {
+        slogerr("\'%.*s\' 1 byte missing for csum\n", 5, nmea->type);
+        return 1;
+    }
+    uint8_t msb = _nibble(nmea->str[nmea->k+1]);
+    uint8_t lsb = _nibble(nmea->str[nmea->k+2]);
+    // if msb or lsb 0xFF
+    uint8_t csum = (msb << 4) | lsb;
+    nmea->k += 2;
+    slogdbg ("%.*s containing %zd fields, csum 0x%02X/0x%02X\n",
+             5, nmea->type, nmea->nb, nmea->csum, csum);
+    if (nmea->csum != csum) {
+        slogerr("%.*s csum error 0x%02X vs 0x%02X\n",
+                 (int)nmea->k, nmea->type, nmea->csum, csum);
+        return -1;
+    }
+    return 0;
+}
+
+#define NMEA_TEST_TOKEN 0 // FIXME
+static ssize_t _nmea_read_token(int uart_port,
+                                char * buff,
+                                ssize_t buff_sz,
+                                struct nmea_token_t * token) {
+    struct timespec t = { 0 };
+    ssize_t n = _nmea_drop(uart_port,
+                           buff,
+                           NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN : buff_sz,
+                           &t);
+    ssize_t cunt = 0;
+    while ( (n == 0) && (cunt < buff_sz/*TODO*/) ) {
+        n = _nmea_drop(uart_port,
+                       buff,
+                       NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN : buff_sz,
+                       &t);
+        cunt ++;
+    }
+    if (n <= 0) return n;
+    ssize_t total = n;
+    ssize_t m = _token_init(buff, &t, token);
+    ssize_t c = _tokenize(token);
+    cunt = 0;
+    while ( (c > 0) && (token->k < buff_sz) && (cunt < buff_sz/*TODO*/) ) {
+        slogdbg("No tail in %zu bytes\n", token->k);
+        ass(buff[token->k] == '\0');
+        n = nmea_read_buff(uart_port,
+                           &buff[token->k],
+                           NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN
+                                           : buff_sz - token->k,
+                           NULL);
+        if (n <= 0) {
+            // a timeout in the middle is an error
+            return -1;
+        }
+        total += n;
+        c = _tokenize(token);
+        cunt ++;
+    }
+    // if buffer full ?
+    if (token->k >= buff_sz) {
+        ass(token->k == buff_sz);
+        ass(total == buff_sz);
+        return -1;
+    }
+    ass(c == 0);
+    c = _token_csum(token);
+    cunt = 0;
+    while ( (c > 0) && (token->k < buff_sz) && (cunt < 4)) {
+        slogdbg("No csum in %zu bytes\n", token->k);
+        ass(buff[token->k] == '\0');
+        n = nmea_read_buff(uart_port,
+                           &buff[token->k],
+                           NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN
+                                           : buff_sz - token->k,
+                           NULL);
+        if (n <= 0) {
+            // a timeout in the middle is an error
+            return -1;
+        }
+        total += n;
+        c = _token_csum(token);
+        cunt ++;
+    }
+    // if buffer full ?
+    if (token->k >= buff_sz) {
+        ass(token->k == buff_sz);
+        ass(total == buff_sz);
+        return -1;
+    }
+    
+    return c == 0 ? total : -1; // TODO check theres no $
+}
+
+static void _nmea_token_print (struct nmea_token_t const * nmea, ssize_t nb) {
     if ( (nb >= 0) && (nb < nmea->nb) ) {
         slogerr("%.*s[%2zd]:%.*s\n",
                 5, nmea->type, nb,
@@ -324,28 +403,252 @@ static void _nmea_print (struct nmea_t const * nmea, ssize_t nb) {
                         (int)nmea->field_sz[k], nmea->field[k]);
             }
         }
-        slogerr("0x%c%c\n", nmea->csum[0], nmea->csum[1]);
+        slogerr("0x%02X\n", nmea->csum);
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+enum nmea_type_t {
+    NMEA_ANY = -1,
+    NMEA_GGA,
+    NMEA_RMC,
+    NMEA_GSA,
+    NMEA_GLL,
+    NMEA_TYPE_NB
+};
+
+static char const * NMEA_TYPE[NMEA_TYPE_NB] = {
+    "GGA",
+    "RMC",
+    "GSA",
+    "GLL",
+};
+
+static bool _nmea_is_type(struct nmea_token_t const * nmea,
+                          enum nmea_type_t type) {
+    if (strncmp(&nmea->type[2], NMEA_TYPE[type], 3) == 0) {
+        return true;
+    }
+    return false;
+}
+
+static enum nmea_type_t _nmea_type (struct nmea_token_t const * nmea) {
+    if (_nmea_is_type(nmea, NMEA_GGA)) {
+        return NMEA_GGA;
+    }
+    if (_nmea_is_type(nmea, NMEA_RMC)) {
+        return NMEA_RMC;
+    }
+    if (_nmea_is_type(nmea, NMEA_GSA)) {
+        return NMEA_GSA;
+    }
+    if (_nmea_is_type(nmea, NMEA_GLL)) {
+        return NMEA_GLL;
+    }
+    return NMEA_ANY;
+}
+
+static int nmea_tm (char const * time,
+                    char const * date,
+                    struct tm * tm_ref) {
+    sscanf(time, "%2d%2d%2d",
+           &tm_ref->tm_hour,
+           &tm_ref->tm_min,
+           &tm_ref->tm_sec);
+    if (time[6] == '.') {
+        // TODO msec
+    }
+    if (date != NULL) {
+        sscanf(date, "%2d%2d%2d",
+               &tm_ref->tm_mday,
+               &tm_ref->tm_mon,
+               &tm_ref->tm_year);
+        tm_ref->tm_mon --;
+        if (tm_ref->tm_year < 80) {
+            tm_ref->tm_year += 100;
+        }
+    }
+    return 1;
+}
+
+static time_t nmea_time (char const * time, char const * date) {
+    struct tm tm_ref = { 0 };
+    nmea_tm(time, date, &tm_ref);
+    return timegm(&tm_ref);
+}
+
+static int nmea_coord (char const * s, char h, struct nmea_coord_t * coord) {
+    if (s[4] == '.') {
+        // latitude
+        coord->deg = (s[0]-'0')*10 + s[1]-'0';
+        coord->mn = atof(&s[2]);
+        if (h == 'S') {
+            coord->deg = -coord->deg;
+        } else if (h != 'N') {
+            return -1;
+        }
+        slogdbg(" %.*s,%c -> latitude  %+3ddeg %.6fmn\n",
+                10, s, h, coord->deg, coord->mn);
+    } else if (s[5] == '.') {
+        // longitude
+        coord->deg = (s[0]-'0')*100 + (s[1]-'0')*10 + s[2]-'0';
+        coord->mn = atof(&s[3]);
+        if (h == 'E') {
+            coord->deg = -coord->deg;
+        } else if (h != 'W') {
+            return -1;
+        }
+        slogdbg("%.*s,%c -> longitude %+3ddeg %.6fmn\n",
+                11, s, h, coord->deg, coord->mn);
+    } else {
+        return -1;
+    }
+    return 1;
+}
+
+static int nmea_rmc (struct nmea_token_t const * token,
+                     struct nmea_data_t * data) {
+    if (token->nb < 9) {
+        return -1;
+    }
+    struct timespec t;
+    t.tv_sec = nmea_time(token->field[0], token->field[8]);
+    t.tv_nsec = 0;
+    int valid = (token->field[1][0] == 'A') ? 1 : 0;
+    slogdbg("%s RMC date %ld received at %ld\n",
+            valid > 0 ? "Valid" : "Unvalid",
+            t.tv_sec, token->t.tv_sec);
+    data->trx = token->t;
+    data->tof = t;
+    nmea_coord(token->field[2], token->field[3][0], &data->latitude);
+    nmea_coord(token->field[4], token->field[5][0], &data->longitude);
+    return valid;
+}
+
+static int nmea_gll (struct nmea_token_t const * token,
+                     struct nmea_data_t * data) {
+    if (token->nb < 6) {
+        return -1;
+    }
+    // TODO valid field 5
+    nmea_coord(token->field[0], token->field[1][0], &data->latitude);
+    nmea_coord(token->field[2], token->field[3][0], &data->longitude);
+    struct tm t;
+    nmea_tm(token->field[4], NULL, &t);
+    // TODO valid field 5
+    return 1;
+}
+
+static int nmea_gga (struct nmea_token_t const * token,
+                     struct nmea_data_t * data) {
+    if (token->nb < 9) {
+        return -1;
+    }
+    struct tm t;
+    nmea_tm(token->field[0], NULL, &t);
+    nmea_coord(token->field[1], token->field[2][0], &data->latitude);
+    nmea_coord(token->field[3], token->field[4][0], &data->longitude);
+    // TODO fix field[5]
+    data->sat_nb = atoi(token->field[6]);
+    data->hdop = atof(token->field[7]);
+    data->alt_m = atof(token->field[8]);
+    data->trx = token->t;
+    return 1;
+}
+
+static int nmea_gsa (struct nmea_token_t const * token,
+                     struct nmea_data_t * data) {
+    if (token->nb < 17) {
+        return -1;
+    }
+    data->pdop = atof(token->field[14]);
+    data->hdop = atof(token->field[15]);
+    data->vdop = atof(token->field[16]);
+    data->trx = token->t;
+    slogdbg("GSA pdop %.3f, hdop %.3f, vdop %.3f\n",
+            data->pdop, data->hdop, data->vdop);
+    return 1;
+}
+
+void nmea_data_print(struct nmea_data_t const * data) {
+    if (data->trx.tv_sec) {
+        slogout("<%ld.%09ld>", data->trx.tv_sec, data->trx.tv_nsec);
+    }
+    if (data->tof.tv_sec) {
+        if (data->tof.tv_nsec > 0) {
+            slogout("[%ld.%09ld] ", data->tof.tv_sec, data->tof.tv_nsec);
+        } else {
+            slogout("[%ld] ", data->tof.tv_sec);
+        }
+    }
+    // TODO FIX
+    if (data->latitude.deg || (data->latitude.mn > 0.0001)) {
+        slogout("LAT  %+3ddeg %.6fmn, ", 
+                data->latitude.deg, data->latitude.mn);
+    }
+    if (data->longitude.deg || (data->longitude.mn > 0.0001)) {
+        slogout("LONG %+3ddeg %.6fmn, ",
+                data->longitude.deg, data->longitude.mn);
+    }
+    if ((data->alt_m > +0.001) || (data->alt_m < -0.001) ) {
+        slogout("ALT %.3fm, ", data->alt_m);
+    }
+    if ((data->pdop > +0.001) || (data->pdop < -0.001) ) {
+        slogout("pdop %.3f, ", data->pdop);
+    }
+    if ((data->hdop > +0.001) || (data->hdop < -0.001) ) {
+        slogout("hdop %.3f, ", data->hdop);
+    }
+    if ((data->vdop > +0.001) || (data->vdop < -0.001) ) {
+        slogout("vdop %.3f, ", data->vdop);
+    }
+    if (data->sat_nb) {
+        slogout("%d sat", data->sat_nb);
+    }
+    slogout("%c", '\n')
 }
 
 ssize_t nmea_sentence(int uart_port,
                       char * buff,
                       ssize_t buff_sz,
-                      struct timespec * ts) {
-    struct nmea_t x = { 0 };
-    ssize_t n = _nmea_sentence(uart_port, buff, buff_sz, ts);
-    if (ts != NULL) {
-        x.t = *ts;
+                      struct nmea_data_t * data) {
+    struct nmea_token_t x = { 0 };
+    ssize_t n = _nmea_read_token(uart_port, buff, buff_sz, &x);
+    if (data != NULL) {
+        data->trx = x.t;
+    } else {
+        x.t.tv_sec = 0;
     }
     if (n <= 0) return n;
-    ssize_t m = _nmea_tok(buff, &x);
-    if (m <= 0) return m;
-    _nmea_print(&x, -1);
+    _nmea_token_print(&x, -1);
+    int ok = 0;
+    switch (_nmea_type(&x)) {
+        case NMEA_RMC:
+        ok = nmea_rmc(&x, data);
+        break;
+        case NMEA_GGA:
+        ok = nmea_gga(&x, data);
+        break;
+        case NMEA_GSA:
+        ok = nmea_gsa(&x, data);
+        break;
+        case NMEA_GLL:
+        ok = nmea_gll(&x, data);
+        break;
+        default:
+        //ass(_nmea_type(&x) == NMEA_ANY);
+        break;
+    }
+    if (ok > 0) {
+        nmea_data_print(data);
+    }
     return n;
 }
 
 /*
  * /////////////////////////////////////////////////////////////////////////////
+ * tty -F /dev/ttyUSB0 -icrnl -echo
  */
 #ifdef NMEA_MAIN
 
@@ -364,7 +667,7 @@ static struct option long_opts[] = {
     {0,0,0,0}
 };
 
-// TODO if a PPS is provided, use it to set the clock !
+// TODO if a PPS is provided, use it !
 int main(int argc, char ** argv) {
     
     nmea_stdout = stdout;
@@ -424,12 +727,14 @@ int main(int argc, char ** argv) {
 
     }
     char buff[256];
-    struct timespec t;
-    ssize_t n = nmea_sentence(nmea_dev, buff, 256, 1?&t:NULL);
-    while (n >= 0) {
-        n = nmea_sentence(nmea_dev, buff, 256, 1?&t:NULL);
+    struct nmea_data_t data;
+    ssize_t n = nmea_sentence(nmea_dev, buff, 256, 1?&data:NULL);
+    while ( (n >= 0) && (cont) ) {
+        n = nmea_sentence(nmea_dev, buff, 256, 1?&data:NULL);
     }
     nmea_close(nmea_dev);
     exit (EXIT_SUCCESS);
 }
-#endif // TIMEREF_MAIN
+
+#endif // NMEA_MAIN
+
