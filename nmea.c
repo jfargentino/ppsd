@@ -451,34 +451,63 @@ static enum nmea_type_t _nmea_type (struct nmea_token_t const * nmea) {
 
 static int nmea_tm (char const * time,
                     char const * date,
-                    struct tm * tm_ref) {
+                    struct tm * tm_ref,
+                    int * ms) {
+    int ret = 1;
     sscanf(time, "%2d%2d%2d",
            &tm_ref->tm_hour,
            &tm_ref->tm_min,
            &tm_ref->tm_sec);
+    slogdbg("%2dh%02dmn%02ds\n",
+            tm_ref->tm_hour, tm_ref->tm_min, tm_ref->tm_sec);
     if (time[6] == '.') {
-        // TODO msec
+        // msec
+        int x = 0;
+        int f = 100;
+        size_t k = 7u;
+        while ( (time[k] >= '0') && (time[k] <= '9') && (f >= 1) ) {
+            x += f * (time[k] - '0');
+            f /= 10;
+            k ++;
+        }
+        slogdbg("%dms ending with \'%c\' %zu\n", x, time[k], k);
+        if (ms != NULL) {
+            *ms = x;
+        }
     }
     if (date != NULL) {
         sscanf(date, "%2d%2d%2d",
                &tm_ref->tm_mday,
                &tm_ref->tm_mon,
                &tm_ref->tm_year);
+        slogdbg("%2d/%02d/%d\n",
+                tm_ref->tm_mday, tm_ref->tm_mon, tm_ref->tm_year);
         tm_ref->tm_mon --;
         if (tm_ref->tm_year < 80) {
             tm_ref->tm_year += 100;
         }
+        ret ++;
     }
-    return 1;
+    return ret;
 }
 
-static time_t nmea_time (char const * time, char const * date) {
+static time_t nmea_timespec (char const * time,
+                             char const * date,
+                             struct timespec * ts) {
     struct tm tm_ref = { 0 };
-    nmea_tm(time, date, &tm_ref);
-    return timegm(&tm_ref);
+    int ms = 0;
+    int ret = nmea_tm(time, date, &tm_ref, &ms);
+    ts->tv_sec = timegm(&tm_ref);
+    ts->tv_nsec = ms * 1000 * 1000;
+    return ret;
 }
 
 static int nmea_coord (char const * s, char h, struct nmea_coord_t * coord) {
+    if (s[0] == ',') {
+        coord->deg = 0;
+        coord->mn = 0.0l;
+        return 0;
+    }
     if (s[4] == '.') {
         // latitude
         coord->deg = (s[0]-'0')*10 + s[1]-'0';
@@ -507,23 +536,59 @@ static int nmea_coord (char const * s, char h, struct nmea_coord_t * coord) {
     return 1;
 }
 
-static int nmea_rmc (struct nmea_token_t const * token,
+static char const * _fix2str(enum nmea_fix_t fix) {
+    switch (fix) {
+        case NMEA_FIX_ERROR:
+        return "ERROR";
+        case NMEA_FIX_NONE:
+        return "NONE";
+        case NMEA_FIX_WARN:
+        return "WARN";
+        case NMEA_FIX_2D:
+        return "2D";
+        case NMEA_FIX_3D:
+        return "3D";
+        case NMEA_FIX_DGPS:
+        return "DGPS";
+        default:
+        slogerr("unknown fix %d\n", fix);
+        return "????";
+    }
+    return (char const *)0xDeadBeef;
+}
+static int nmea_gga (struct nmea_token_t const * token,
                      struct nmea_data_t * data) {
     if (token->nb < 9) {
         return -1;
     }
-    struct timespec t;
-    t.tv_sec = nmea_time(token->field[0], token->field[8]);
-    t.tv_nsec = 0;
-    int valid = (token->field[1][0] == 'A') ? 1 : 0;
-    slogdbg("%s RMC date %ld received at %ld\n",
-            valid > 0 ? "Valid" : "Unvalid",
-            t.tv_sec, token->t.tv_sec);
+    struct tm t = {0};
+    int ms = 0;
+    nmea_tm(token->field[0], NULL, &t, &ms);
+    nmea_coord(token->field[1], token->field[2][0], &data->latitude);
+    nmea_coord(token->field[3], token->field[4][0], &data->longitude);
+    switch (token->field[5][0]) {
+        case '0':
+        data->fix = NMEA_FIX_NONE;
+        break;
+        case '1':
+        if (data->fix != NMEA_FIX_2D) {
+            data->fix = NMEA_FIX_3D;
+        }
+        break;
+        case '2':
+        data->fix = NMEA_FIX_DGPS;
+        break;
+        default:
+        slogerr("unknown GGA fix \'%c\' (0x%02X)\n",
+                token->field[5][0], token->field[5][0]);
+        data->fix = NMEA_FIX_ERROR;
+        break;
+    }
+    data->sat_nb = atoi(token->field[6]);
+    data->hdop = atof(token->field[7]);
+    data->alt_m = atof(token->field[8]);
     data->trx = token->t;
-    data->tof = t;
-    nmea_coord(token->field[2], token->field[3][0], &data->latitude);
-    nmea_coord(token->field[4], token->field[5][0], &data->longitude);
-    return valid;
+    return 1;
 }
 
 static int nmea_gll (struct nmea_token_t const * token,
@@ -534,27 +599,33 @@ static int nmea_gll (struct nmea_token_t const * token,
     // TODO valid field 5
     nmea_coord(token->field[0], token->field[1][0], &data->latitude);
     nmea_coord(token->field[2], token->field[3][0], &data->longitude);
-    struct tm t;
-    nmea_tm(token->field[4], NULL, &t);
+    struct tm t = {0};
+    int ms = 0;
+    nmea_tm(token->field[4], NULL, &t, &ms);
     // TODO valid field 5
     return 1;
 }
 
-static int nmea_gga (struct nmea_token_t const * token,
+static int nmea_rmc (struct nmea_token_t const * token,
                      struct nmea_data_t * data) {
     if (token->nb < 9) {
         return -1;
     }
-    struct tm t;
-    nmea_tm(token->field[0], NULL, &t);
-    nmea_coord(token->field[1], token->field[2][0], &data->latitude);
-    nmea_coord(token->field[3], token->field[4][0], &data->longitude);
-    // TODO fix field[5]
-    data->sat_nb = atoi(token->field[6]);
-    data->hdop = atof(token->field[7]);
-    data->alt_m = atof(token->field[8]);
+    nmea_timespec(token->field[0], token->field[8], &data->tof);
+    int valid = (token->field[1][0] == 'A') ? 1 : 0;
+    if (valid == 0) {
+        data->fix = NMEA_FIX_NONE;
+    } else if ( data->fix != NMEA_FIX_2D) {
+        data->fix = NMEA_FIX_3D;
+    }
+    slogdbg("%s RMC date %ld.%03ldms received at %ld.%03ldms\n",
+            valid > 0 ? "Valid" : "Unvalid",
+            data->tof.tv_sec, data->tof.tv_nsec/1000000,
+            token->t.tv_sec, token->t.tv_nsec/1000000);
     data->trx = token->t;
-    return 1;
+    nmea_coord(token->field[2], token->field[3][0], &data->latitude);
+    nmea_coord(token->field[4], token->field[5][0], &data->longitude);
+    return valid;
 }
 
 static int nmea_gsa (struct nmea_token_t const * token,
@@ -573,40 +644,40 @@ static int nmea_gsa (struct nmea_token_t const * token,
 
 void nmea_data_print(struct nmea_data_t const * data) {
     if (data->trx.tv_sec) {
-        slogout("<%ld.%09ld>", data->trx.tv_sec, data->trx.tv_nsec);
+        slogerr("<%ld.%09ld>", data->trx.tv_sec, data->trx.tv_nsec);
     }
     if (data->tof.tv_sec) {
         if (data->tof.tv_nsec > 0) {
-            slogout("[%ld.%09ld] ", data->tof.tv_sec, data->tof.tv_nsec);
+            slogerr("[%ld.%09ld] ", data->tof.tv_sec, data->tof.tv_nsec);
         } else {
-            slogout("[%ld] ", data->tof.tv_sec);
+            slogerr("[%ld] ", data->tof.tv_sec);
         }
     }
-    // TODO FIX
-    if (data->latitude.deg || (data->latitude.mn > 0.0001)) {
-        slogout("LAT  %+3ddeg %.6fmn, ", 
+    slogerr("FIX %s, ", _fix2str(data->fix));
+    if (data->latitude.deg || (data->latitude.mn > 0.0001l)) {
+        slogerr("LAT  %+3ddeg %.6fmn, ", 
                 data->latitude.deg, data->latitude.mn);
     }
-    if (data->longitude.deg || (data->longitude.mn > 0.0001)) {
-        slogout("LONG %+3ddeg %.6fmn, ",
+    if (data->longitude.deg || (data->longitude.mn > 0.0001l)) {
+        slogerr("LONG %+3ddeg %.6fmn, ",
                 data->longitude.deg, data->longitude.mn);
     }
-    if ((data->alt_m > +0.001) || (data->alt_m < -0.001) ) {
-        slogout("ALT %.3fm, ", data->alt_m);
+    if ((data->alt_m > +0.001l) || (data->alt_m < -0.001l) ) {
+        slogerr("ALT %.3fm, ", data->alt_m);
     }
-    if ((data->pdop > +0.001) || (data->pdop < -0.001) ) {
-        slogout("pdop %.3f, ", data->pdop);
+    if ((data->pdop > +0.001l) || (data->pdop < -0.001l) ) {
+        slogerr("pdop %.3f, ", data->pdop);
     }
-    if ((data->hdop > +0.001) || (data->hdop < -0.001) ) {
-        slogout("hdop %.3f, ", data->hdop);
+    if ((data->hdop > +0.001l) || (data->hdop < -0.001l) ) {
+        slogerr("hdop %.3f, ", data->hdop);
     }
-    if ((data->vdop > +0.001) || (data->vdop < -0.001) ) {
-        slogout("vdop %.3f, ", data->vdop);
+    if ((data->vdop > +0.001l) || (data->vdop < -0.001l) ) {
+        slogerr("vdop %.3f, ", data->vdop);
     }
     if (data->sat_nb) {
-        slogout("%d sat", data->sat_nb);
+        slogerr("%d sat", data->sat_nb);
     }
-    slogout("%c", '\n')
+    slogerr("%c", '\n')
 }
 
 ssize_t nmea_sentence(int uart_port,

@@ -59,7 +59,7 @@ timespec: timespec_helper.c
 pps_stats: pps_stats.c build/timespec_helper.o
 	$(CC) $(CFLAGS) -DPPS_STATS_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -lm -o $@
 
-timeref: timeref.c build/adjtimex_helper.o build/timespec_helper.o
+timeref: timeref.c build/adjtimex_helper.o build/nmea.o build/timespec_helper.o
 	$(CC) $(CFLAGS) -DTIMEREF_MAIN $(CPPFLAGS) $^ $(LDFLAGS) -lgps -o $@
 
 jfadjtimex: adjtimex_helper.c build/timespec_helper.o

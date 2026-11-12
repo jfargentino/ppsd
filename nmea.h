@@ -10,10 +10,6 @@ extern FILE* nmea_stddbg;
 #define STDDBG nmea_stddbg
 #include "slog.h"
 
-#ifndef UART_DEV_DEFAULT
-#define UART_DEV_DEFAULT "/dev/ttyS0"
-#endif
-
 int nmea_open(char const * uart_dev, char const * uart_cfg);
 
 void nmea_close (int uart_port);

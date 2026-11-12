@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include "nmea.h"
 #include "timeref.h"
 #include "timespec_helper.h"
 
@@ -258,356 +259,17 @@ int sntp_timeref(char const * sntp_addr,
     return 1;
 }
 
-/*
- * /////////////////////////////////////////////////////////////////////////////
- */
-#ifndef UART_DEV_DEFAULT
-#define UART_DEV_DEFAULT "/dev/ttyS0"
-#endif
-
-#include <errno.h>
-#include <fcntl.h>
-#include <linux/serial.h>
-#include <sys/ioctl.h>
-#include <termios.h>
-#include <unistd.h>
-
-static ssize_t _nmea_read(int uart_port,
-                          char * buff,
-                          ssize_t buff_sz,
-                          struct timespec * ts) {
-    if (buff_sz <= 0) {
-        return -1;
-    }
-    ssize_t n = read(uart_port, buff, (unsigned)buff_sz);
-    if (ts != NULL) {
-        clock_gettime(CLOCK_REALTIME, ts);
-    }
-    if (n < 0) {
-        slogerr("UART%d read error: %s\n", uart_port, strerror(errno));
-        return -1;
-    }
-    if (n == 0) {
-        slogerr("UART%d read timeout\n", uart_port);
-        return 0;
-    }
-    if (n >= buff_sz) {
-        slogerr("UART%d read overrun\n", uart_port);
-        buff[buff_sz-1] = '\0';
-        n = -1;
-    } else {
-        buff[n] = '\0';
-    }
-    slogdbg("%ld bytes received: \"%s\"\n", n, buff);
-    return n;
-}
-
-static ssize_t _char_idx (char x, char const * str) {
-    ssize_t k = 0u;
-    while ( (str[k] != '\0') && (str[k] != x) ) {
-        k ++;
-    }
-    return (str[k] == '\0') ? -1 : k;
-}
-
-static ssize_t _nmea_raw(int uart_port,
-                         char * buff,
-                         ssize_t buff_sz,
-                         struct timespec * ts) {
-    ssize_t tot = 0;
-    ssize_t n = _nmea_read(uart_port, buff, buff_sz, ts);
-    ssize_t h = -1;
-    while ( (n > 0) && (tot < buff_sz) && (h < 0) ) {
-        tot += n;
-        h = _char_idx('$', buff);
-        if (h < 0) {
-            n = _nmea_read(uart_port, buff, buff_sz, ts);
-        }
-    }
-    if (n <= 0) {
-        // Error or timeout
-        return n;
-    }
-    if (tot >= buff_sz) {
-        // plenty of bytes read without NMEA sentence start //
-        slogerr("UART%d %ld bytes read without \'%c\'\n",
-                uart_port, tot, '$');
-        return 0;
-    }
-    // NMEA sentence start detected //
-    ass(buff[h] == '$');
-    // TODO correct the ts from the nb of char !
-    for (ssize_t k = 0; k < n - h; k++) {
-        buff[k] = buff[k+h];
-    }
-    slogdbg("NMEA sentence start detected \'%s\'\n",
-            buff);
-    n -= h;
-    tot = n;
-    ssize_t t = _char_idx('*', buff);
-    while ( (n > 0) && (tot < buff_sz) && (t < 0) ) {
-        n = _nmea_read(uart_port, buff+tot, buff_sz-tot, NULL);
-        if (n > 0) {
-            t = _char_idx('$', buff+tot);
-            tot += n;
-        }
-    }
-    if (t < 0) {
-        // plenty of bytes read without NMEA sentence end //
-        slogerr("UART%d %ld bytes read without \'%c\'\n",
-                uart_port, tot, '*');
-        return -1;
-    }
-    // TODO use t, tot and n
-    ssize_t tt = _char_idx('*', buff);
-    slogdbg("NMEA sentence \'%.*s\'\n", (int)tt, buff);
-    return tt; // return tt to check for csum and following sentences
-}
-
-#ifndef NMEA_FIELDS_NB
-#define NMEA_FIELDS_NB 100
-#endif
-
-struct nmea_raw_t {
-    char const * type;
-    ssize_t nb;
-    char const * field[NMEA_FIELDS_NB];
-    ssize_t field_sz[NMEA_FIELDS_NB];
-};
-
-static ssize_t _nmea_tok (char const * buff, struct nmea_raw_t * nmea) {
-    if (buff[0] != '$') {
-        slogerr("No \'%c\' in \'%s\'\n", '$', buff);
-        return -1;
-    }
-    nmea->type = buff + 1;
-    nmea->nb = 0;
-    for (size_t nb = 0u; nb < NMEA_FIELDS_NB; nb++) {
-        nmea->field[nb] = NULL;
-        nmea->field_sz[nb] = 0;
-    }
-    size_t k = 1u;
-    while ( (buff[k] != '\0') && (buff[k] != '*') ) {
-        if (buff[k] == ',') {
-            nmea->field[nmea->nb] = &buff[k+1];
-            if (nmea->nb > 0) {
-                nmea->field_sz[nmea->nb-1]
-                    = nmea->field[nmea->nb] - nmea->field[nmea->nb-1] - 1;
-            }
-            nmea->nb ++;
-        }
-        k ++;
-    }
-    if (buff[k] != '*') {
-        // end of buffer before end of NMEA
-        slogerr("No \'%c\' in \'%s\'\n", '*', buff);
-        return 0;
-    }
-    //nmea->field_sz[nmea->nb-1] = k - nmea->field[nmea->nb-1];
-    nmea->nb ++;
-    slogdbg ("%*.s containing %zd fields\n", 5, nmea->type, nmea->nb);
-    return +1;
-}
-
-static void _nmea_print (struct nmea_raw_t const * nmea, ssize_t nb) {
-    if ( (nb >= 0) && (nb < nmea->nb) ) {
-        slogerr("%.*s[%zd]:%.*s\n",
-                5, nmea->type, nb,
-                (int)nmea->field_sz[nb],
-                nmea->field[nb]);
-    } else {
-        slogerr("%.*s[%zu]:", 5, nmea->type, nmea->nb);
-        for (ssize_t k = 0; k < nmea->nb; k++) {
-            if (nmea->field_sz[k] > 0) {
-                slogerr("[%zd]%.*s,",
-                        k, (int)nmea->field_sz[k], nmea->field[k]);
-            }
-        }
-        slogerr("%c", '\n');
-    }
-}
-
-#ifndef NMEA_NB
-#define NMEA_NB 200
-#endif
-
-enum nmea_type_t {
-    NMEA_ANY = -1,
-    NMEA_GGA,
-    NMEA_RMC,
-    NMEA_GSA,
-    NMEA_GLL,
-    NMEA_TYPE_NB
-};
-
-static char const * NMEA_TYPE[NMEA_TYPE_NB] = {
-    "GGA",
-    "RMC",
-    "GSA",
-    "GLL",
-};
-
-static bool _nmea_is_type(char const * nmea, enum nmea_type_t type) {
-    if (strncmp(&nmea[3], NMEA_TYPE[type], 3) == 0) {
-        return true;
-    }
-    return false;
-}
-
-static enum nmea_type_t _nmea_type (char const * nmea) {
-    if (_nmea_is_type(nmea, NMEA_GGA)) {
-        return NMEA_GGA;
-    }
-    if (_nmea_is_type(nmea, NMEA_RMC)) {
-        return NMEA_RMC;
-    }
-    if (_nmea_is_type(nmea, NMEA_GSA)) {
-        return NMEA_GSA;
-    }
-    if (_nmea_is_type(nmea, NMEA_GLL)) {
-        return NMEA_GLL;
-    }
-    return NMEA_ANY;
-}
-
 static int nmea_get_fix (int uart_port,
                          struct timespec * timestamp,
                          struct timespec * timeref) {
-    #define BUFF_SZ 256
-    char buff[BUFF_SZ] = { 0 };
-    int valid = 0;
+    static struct nmea_data_t data = { 0 };
     // TODO timestamp must the one from 1st sentence after PPS...
-    ssize_t nmea_sz = _nmea_raw(uart_port, buff, BUFF_SZ, timestamp);
-    timeref->tv_sec = 0;
-    int nmea_nb = 0;
-    while ( (nmea_sz > 0) && (timeref->tv_sec == 0) ) {
-        struct nmea_raw_t nmea;
-        struct tm tm_ref = { 0 };
-        _nmea_tok (buff, &nmea);
-        _nmea_print (&nmea, -1);
-        switch (_nmea_type(buff)) {
-            case NMEA_RMC:
-            // timeref
-            // TODO centisec ?
-            sscanf(nmea.field[0], "%2d%2d%2d",
-                   &tm_ref.tm_hour,
-                   &tm_ref.tm_min,
-                   &tm_ref.tm_sec);
-            sscanf(nmea.field[8], "%2d%2d%2d",
-                   &tm_ref.tm_mday,
-                   &tm_ref.tm_mon,
-                   &tm_ref.tm_year);
-            tm_ref.tm_mon --;
-            if (tm_ref.tm_year < 80) {
-                tm_ref.tm_year += 100;
-            }
-            timeref->tv_sec = timegm(&tm_ref);
-            valid = (nmea.field[1][0] == 'A') ? 1 : 0;
-            slogout("%s RMC date %ld received at %ld\n",
-                    valid > 0 ? "Valid" : "Unvalid",
-                    timeref->tv_sec, timestamp->tv_sec);
-            break;
-            case NMEA_GSA:
-            // TODO valid
-            case NMEA_GLL:
-            case NMEA_GGA:
-            default:
-            break;
-        }
-        nmea_nb ++;
-        if (nmea_nb > NMEA_NB) {
-            slogerr("%d NMEA sentences without timeref\n",
-                    nmea_nb);
-            nmea_sz = 0;
-        } else {
-            nmea_sz = _nmea_raw(uart_port, buff, BUFF_SZ, timestamp);
-        }
-    }
-    return nmea_sz > 0 ? valid : -1;
-}
-
-static int _nmea_uart_port = -1;
-
-static int _nmea_open(char const * uart_dev,
-                      char const * uart_cfg) {
-    if (_nmea_uart_port >= 0) {
-        return _nmea_uart_port;
-    }
-    //int mode = O_NOCTTY | O_NONBLOCK;
-    //int mode = O_NOCTTY;
-    int mode = 0;
-    _nmea_uart_port = open(NULL == uart_dev ? UART_DEV_DEFAULT : uart_dev,
-                           mode |= (NULL == uart_cfg) ? O_RDONLY : O_RDWR);
-    if (_nmea_uart_port < 0) {
-        slogerr("Can not open UART dev %s in %s: %s\n",
-                NULL == uart_dev ? UART_DEV_DEFAULT : uart_dev,
-                NULL == uart_cfg ? "RO" : "RW",
-                strerror(errno));
-        return -1;
-    }
-    slogdbg("UART dev %s open in %s\n",
-            NULL == uart_dev ? UART_DEV_DEFAULT : uart_dev,
-            NULL == uart_cfg ? "RO" : "RW");
-    if (uart_cfg != NULL) {
-        struct termios tty;
-
-        tty.c_cflag &= ~CRTSCTS; // Disable RTS/CTS hardware flow control
-        tty.c_iflag &= ~((unsigned)IXON); // Turn off s/w flow ctrl
-        tty.c_iflag &= ~((unsigned)IXOFF); // Turn off s/w flow ctrl
-        tty.c_iflag &= ~((unsigned)IXANY); // Turn off s/w flow ctrl
-        
-        // TODO
-        // Disable any special handling of received bytes
-        // tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL);
-
-        tty.c_cflag |= CS8; // 8 bits per byte
-        tty.c_cflag &= ~((unsigned)PARENB); // no parity
-        tty.c_cflag &= ~((unsigned)CSTOPB); // 1 stop bit
-        tty.c_lflag &= ~((unsigned)ICANON);
-        tty.c_cc[VTIME] = 10; // Wait for up to 1s (10 deciseconds),
-        tty.c_cc[VMIN] = 0; // returning as soon as any data is received.
-        tty.c_cc[VMIN] = 1; // returning as soon as any data is received.
-        tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines
-
-        if(tcgetattr(_nmea_uart_port, &tty) != 0) {
-            slogerr("Can not retrieve %s config: %s\n",
-                    NULL == uart_dev ? UART_DEV_DEFAULT : uart_dev,
-                    strerror(errno));
-        } else {
-
-            cfsetispeed(&tty, B9600);
-            cfsetospeed(&tty, B9600);
-        }
-    }
-    return _nmea_uart_port;
-}
-
-static void _nmea_close (int uart_port) {
-    if (uart_port < 0) {
-        slogerr("%s\n", "No UART open yet");
-        return;
-    }
-    if (uart_port != _nmea_uart_port) {
-        slogerr("UART provided %d is not NMEA %d\n",
-                uart_port, _nmea_uart_port);
-        return;
-    }
-    // FIXME closing the dev take too long or even hang !
-    if (0) {
-    // Set the close delay timeout to 0 (units are in hundredths of a second)
-        struct serial_struct ser_info;
-        if (ioctl(uart_port, TIOCGSERIAL, &ser_info) == 0) {
-            ser_info.closing_wait = 0; // 0 = Do not wait at all
-            ioctl(uart_port, TIOCSSERIAL, &ser_info);
-        }
-    }
-    if (0) {
-        tcflush(uart_port, TCIOFLUSH);
-    }
-    if (0) {
-        close(uart_port);
-        _nmea_uart_port = -1;
-    }
+    #define BUFF_SZ 256
+    char buff[BUFF_SZ+1] = { 0 };
+    ssize_t n = nmea_sentence(uart_port, buff, BUFF_SZ, &data);
+    *timestamp = data.trx;
+    *timeref = data.tof;
+    return (n > 0) ? (data.fix == NMEA_FIX_3D) : -1;
 }
 
 int nmea_timeref(char const * uart_dev,
@@ -615,19 +277,15 @@ int nmea_timeref(char const * uart_dev,
                  struct timespec * timeref,
                  struct timespec * timestamp) {
     
-    int uart_port = _nmea_open(uart_dev, uart_cfg);
-
+    int uart_port = nmea_open(uart_dev, uart_cfg);
     int fix_nb = 0;
     int valid = nmea_get_fix (uart_port, timestamp, timeref);
     while ( (valid == 0) && (fix_nb < GPSD_TIMEOUT_S) ) {
-        slogerr("fix %d %+d\n", fix_nb, valid);
         fix_nb ++;
         valid = nmea_get_fix (uart_port, timestamp, timeref);
     }
 
-    slogerr("fix %d %+d, closing\n", fix_nb, valid);
-    _nmea_close(uart_port);
-    slogerr("fix %d %+d, closed\n", fix_nb, valid);
+    nmea_close(uart_port);
 
     if (valid <= 0) {
         slogout("%s after %d fixes\n",
@@ -795,6 +453,9 @@ int main(int argc, char ** argv) {
             break;
         }
     }
+    nmea_stdout = timeref_stdout;
+    nmea_stderr = timeref_stderr;
+    nmea_stddbg = timeref_stddbg;
     
     long long off_ns = 0ll;
     if (optind < argc) {
