@@ -120,10 +120,10 @@ ssize_t nmea_read_buff(int uart_port,
                        char * buff,
                        ssize_t buff_sz,
                        struct timespec * ts) {
-    if (buff_sz <= 0) {
+    if (buff_sz <= 1) {
         return -1;
     }
-    ssize_t n = read(uart_port, buff, (unsigned)buff_sz);
+    ssize_t n = read(uart_port, buff, (unsigned)buff_sz - 1);
     if (ts != NULL) {
         clock_gettime(CLOCK_REALTIME, ts);
     }
@@ -135,14 +135,12 @@ ssize_t nmea_read_buff(int uart_port,
         slogerr("UART%d read timeout\n", uart_port);
         return 0;
     }
-    if (n >= buff_sz) {
+    if (n >= buff_sz - 1) {
+        ass(n == buff_sz - 1);
         // TODO maybe by handling this we could read txt file ?
-        slogerr("UART%d read overrun\n", uart_port);
-        buff[buff_sz-1] = '\0';
-        n = -1;
-    } else {
-        buff[n] = '\0';
+        //slogerr("UART%d read overrun %zd\n", uart_port, n);
     }
+    buff[n] = '\0';
     slogdbg("%ld bytes received: \"%s\"\n", n, buff);
     return n;
 }
@@ -253,7 +251,7 @@ static ssize_t _tokenize (struct nmea_token_t * nmea) {
     nmea->k = k;
     if (nmea->str[k] != '*') {
         // end of buffer before end of NMEA
-        slogerr("\'%s\' does not end with \'%c\' in %zu bytes\n",
+        slogdbg("\'%s\' does not end with \'%c\' in %zu bytes\n",
                 nmea->str, '*', k);
         ass(nmea->str[nmea->k] == '\0');
         return 1; // read again
@@ -287,14 +285,15 @@ static uint8_t _nibble (char c) {
 
 static ssize_t _token_csum (struct nmea_token_t * nmea) {
     if (nmea->str[nmea->k] != '*') {
+        slogdbg("no \'%c\'\n", '*');
         return -1;
     }
     if (nmea->str[nmea->k+1] == '\0') {
-        slogerr("\'%.*s\' missing csum\n", 5, nmea->type);
+        slogdbg("\'%.*s\' missing csum\n", 5, nmea->type);
         return 2;
     }
     if (nmea->str[nmea->k+2] == '\0') {
-        slogerr("\'%.*s\' 1 byte missing for csum\n", 5, nmea->type);
+        slogdbg("\'%.*s\' 1 byte missing for csum\n", 5, nmea->type);
         return 1;
     }
     uint8_t msb = _nibble(nmea->str[nmea->k+1]);
@@ -312,7 +311,7 @@ static ssize_t _token_csum (struct nmea_token_t * nmea) {
     return 0;
 }
 
-#define NMEA_TEST_TOKEN 0 // FIXME
+#define NMEA_TEST_TOKEN 1
 static ssize_t _nmea_read_token(int uart_port,
                                 char * buff,
                                 ssize_t buff_sz,
@@ -320,13 +319,13 @@ static ssize_t _nmea_read_token(int uart_port,
     struct timespec t = { 0 };
     ssize_t n = _nmea_drop(uart_port,
                            buff,
-                           NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN : buff_sz,
+                           NMEA_TEST_TOKEN ? (NMEA_TEST_TOKEN+1) : buff_sz,
                            &t);
     ssize_t cunt = 0;
     while ( (n == 0) && (cunt < buff_sz/*TODO*/) ) {
         n = _nmea_drop(uart_port,
                        buff,
-                       NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN : buff_sz,
+                       NMEA_TEST_TOKEN ? (NMEA_TEST_TOKEN+1) : buff_sz,
                        &t);
         cunt ++;
     }
@@ -337,11 +336,11 @@ static ssize_t _nmea_read_token(int uart_port,
     cunt = 0;
     while ( (c > 0) && (token->k < buff_sz) && (cunt < buff_sz/*TODO*/) ) {
         slogdbg("No tail in %zu bytes\n", token->k);
-        ass(buff[token->k] == '\0');
+        ass(buff[total] == '\0');
         n = nmea_read_buff(uart_port,
-                           &buff[token->k],
-                           NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN
-                                           : buff_sz - token->k,
+                           &buff[total],
+                           NMEA_TEST_TOKEN ? (NMEA_TEST_TOKEN+1)
+                                           : buff_sz - total,
                            NULL);
         if (n <= 0) {
             // a timeout in the middle is an error
@@ -361,23 +360,25 @@ static ssize_t _nmea_read_token(int uart_port,
     c = _token_csum(token);
     cunt = 0;
     while ( (c > 0) && (token->k < buff_sz) && (cunt < 4)) {
-        slogdbg("No csum in %zu bytes\n", token->k);
-        ass(buff[token->k] == '\0');
+        slogdbg("No csum in %zu bytes (%zd, %zd)\n", token->k, c, cunt);
+        ass(buff[total] == '\0');
         n = nmea_read_buff(uart_port,
-                           &buff[token->k],
-                           NMEA_TEST_TOKEN ? NMEA_TEST_TOKEN
-                                           : buff_sz - token->k,
+                           &buff[total],
+                           NMEA_TEST_TOKEN ? (NMEA_TEST_TOKEN+1)
+                                           : buff_sz - total,
                            NULL);
         if (n <= 0) {
             // a timeout in the middle is an error
+            slogerr("reading csum return %zd after %zd call\n", n, cunt);
             return -1;
         }
         total += n;
-        c = _token_csum(token);
         cunt ++;
+        c = _token_csum(token);
     }
     // if buffer full ?
     if (token->k >= buff_sz) {
+        slogdbg("buffer ovr %zu == %zd\n", token->k, buff_sz);
         ass(token->k == buff_sz);
         ass(total == buff_sz);
         return -1;
@@ -523,9 +524,9 @@ static int nmea_coord (char const * s, char h, struct nmea_coord_t * coord) {
         // longitude
         coord->deg = (s[0]-'0')*100 + (s[1]-'0')*10 + s[2]-'0';
         coord->mn = atof(&s[3]);
-        if (h == 'E') {
+        if (h == 'W') {
             coord->deg = -coord->deg;
-        } else if (h != 'W') {
+        } else if (h != 'E') {
             return -1;
         }
         slogdbg("%.*s,%c -> longitude %+3ddeg %.6fmn\n",
@@ -642,42 +643,42 @@ static int nmea_gsa (struct nmea_token_t const * token,
     return 1;
 }
 
-void nmea_data_print(struct nmea_data_t const * data) {
+void nmea_data_fprint(FILE * file, struct nmea_data_t const * data) {
     if (data->trx.tv_sec) {
-        slogerr("<%ld.%09ld>", data->trx.tv_sec, data->trx.tv_nsec);
+        flog(file, "<%ld.%09ld>", data->trx.tv_sec, data->trx.tv_nsec);
     }
     if (data->tof.tv_sec) {
         if (data->tof.tv_nsec > 0) {
-            slogerr("[%ld.%09ld] ", data->tof.tv_sec, data->tof.tv_nsec);
+            flog(file, "[%ld.%09ld] ", data->tof.tv_sec, data->tof.tv_nsec);
         } else {
-            slogerr("[%ld] ", data->tof.tv_sec);
+            flog(file, "[%ld] ", data->tof.tv_sec);
         }
     }
-    slogerr("FIX %s, ", _fix2str(data->fix));
+    flog(file, "FIX %s, ", _fix2str(data->fix));
     if (data->latitude.deg || (data->latitude.mn > 0.0001l)) {
-        slogerr("LAT  %+3ddeg %.6fmn, ", 
-                data->latitude.deg, data->latitude.mn);
+        flog(file, "LAT  %+3ddeg %.6fmn, ", 
+             data->latitude.deg, data->latitude.mn);
     }
     if (data->longitude.deg || (data->longitude.mn > 0.0001l)) {
-        slogerr("LONG %+3ddeg %.6fmn, ",
-                data->longitude.deg, data->longitude.mn);
+        flog(file, "LONG %+3ddeg %.6fmn, ",
+             data->longitude.deg, data->longitude.mn);
     }
     if ((data->alt_m > +0.001l) || (data->alt_m < -0.001l) ) {
-        slogerr("ALT %.3fm, ", data->alt_m);
+        flog(file, "ALT %.3fm, ", data->alt_m);
     }
     if ((data->pdop > +0.001l) || (data->pdop < -0.001l) ) {
-        slogerr("pdop %.3f, ", data->pdop);
+        flog(file, "pdop %.3f, ", data->pdop);
     }
     if ((data->hdop > +0.001l) || (data->hdop < -0.001l) ) {
-        slogerr("hdop %.3f, ", data->hdop);
+        flog(file, "hdop %.3f, ", data->hdop);
     }
     if ((data->vdop > +0.001l) || (data->vdop < -0.001l) ) {
-        slogerr("vdop %.3f, ", data->vdop);
+        flog(file, "vdop %.3f, ", data->vdop);
     }
     if (data->sat_nb) {
-        slogerr("%d sat", data->sat_nb);
+        flog(file, "%d sat", data->sat_nb);
     }
-    slogerr("%c", '\n')
+    flog(file, "%c", '\n')
 }
 
 ssize_t nmea_sentence(int uart_port,
@@ -712,7 +713,7 @@ ssize_t nmea_sentence(int uart_port,
         break;
     }
     if (ok > 0) {
-        nmea_data_print(data);
+        nmea_data_fprint(nmea_stdout, data);
     }
     return n;
 }

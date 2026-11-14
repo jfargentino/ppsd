@@ -453,7 +453,7 @@ int main(int argc, char ** argv) {
             break;
         }
     }
-    nmea_stdout = timeref_stdout;
+    nmea_stdout = timeref_stderr;
     nmea_stderr = timeref_stderr;
     nmea_stddbg = timeref_stddbg;
     
